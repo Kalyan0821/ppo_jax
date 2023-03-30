@@ -15,7 +15,10 @@ SEED = 0
 total_experience = 200000
 lr = 1e-2
 n_agents = 8
+
 horizon = 128
+horizon = 8
+
 n_epochs = 16
 # minibatch_size = 128
 minibatch_size = n_agents*horizon  # for 1 minibatch per epoch
@@ -31,30 +34,24 @@ gae_lambda = 0.95
 
 n_eval_agents = 16
 eval_discount = 1.0
-eval_freq = 0.1
-checkpoint_freq = 0.1
+eval_iter = 20
+checkpoint_iter = 20
 checkpoint_dir = "./checkpoints"
 
 
 env, env_params = gymnax.make(env_name)
 key = jax.random.PRNGKey(SEED)
-
 key, subkey_env, subkey_model = jax.random.split(key, 3)
-state_array, _ = env.reset(subkey_env)
-n_features = state_array.size
+state_feature, _ = env.reset(subkey_env)
+n_features = state_feature.size
 n_actions = env.action_space().n
 
 model = NN(hidden_layer_sizes=hidden_layer_sizes, n_actions=n_actions)
 model_params = model.init(subkey_model, jnp.zeros(n_features))
 
-
 n_outer_iters = total_experience // (n_agents * horizon)  # loop_steps
-
 n_iters_per_epoch = n_agents*horizon // minibatch_size
 n_inner_iters = n_epochs * n_iters_per_epoch
-
-eval_iter = int(1/eval_freq)
-checkpoint_iter = int(1/checkpoint_freq)
 
 if anneal:
     lr = optax.linear_schedule(init_value=lr, 
@@ -63,24 +60,22 @@ if anneal:
     
 optimizer = optax.adam(lr)
 optimizer_state = optimizer.init(model_params)
-
-print("Outer steps:", n_outer_iters)
 evals = dict()
-
+print("Outer steps:", n_outer_iters)
 for outer_iter in range(n_outer_iters):
 
-    if outer_iter % eval_iter == 0:
-        experience = outer_iter * n_agents * horizon
-        print("Evaluating ...")
-        key, *eval_agent_keys = jax.random.split(key, n_eval_agents+1)
-        eval_agent_keys = jnp.asarray(eval_agent_keys)
-        returns = full_return(env,
-                              eval_agent_keys,
-                              model_params,
-                              model,
-                              eval_discount)
-        evals[experience] = returns
-        print(f"Experience: {experience}. Returns: {returns}\n")
+    # if outer_iter % eval_iter == 0:
+    #     experience = outer_iter * n_agents * horizon
+    #     print("Evaluating ...")
+    #     key, *eval_agent_keys = jax.random.split(key, n_eval_agents+1)
+    #     eval_agent_keys = jnp.asarray(eval_agent_keys)
+    #     returns = full_return(env,
+    #                           eval_agent_keys,
+    #                           model_params,
+    #                           model,
+    #                           eval_discount)
+    #     evals[experience] = returns
+    #     print(f"Experience: {experience}. Returns: {returns}\n")
 
 
     print(f"Step {outer_iter+1}:")

@@ -15,7 +15,7 @@ def full_return(env: Environment,
                 discount: float):
 
     key, subkey_reset = jax.random.split(key)
-    state_array, state = env.reset(subkey_reset)  # state_array: (n_features,)
+    state_feature, state = env.reset(subkey_reset)  # state_feature: (n_features,)
 
     # next_is_terminal = False
     # t = 0
@@ -25,13 +25,13 @@ def full_return(env: Environment,
     #     key, subkey_policy, subkey_mdp = jax.random.split(key, 3)
 
     #     # (n_actions), (1,)
-    #     policy_log_probs, _ = model.apply(model_params, state_array)
+    #     policy_log_probs, _ = model.apply(model_params, state_feature)
     #     policy_probs = jnp.exp(policy_log_probs)
     #     action = jax.random.choice(subkey_policy, 
     #                                env.action_space().n, 
     #                                p=policy_probs)
 
-    #     state_array, state, reward, next_is_terminal, _ = env.step(subkey_mdp, state, action)
+    #     state_feature, state, reward, next_is_terminal, _ = env.step(subkey_mdp, state, action)
     #     discounted_return += (discount**t) * reward
         
     #     t += 1
@@ -40,7 +40,7 @@ def full_return(env: Environment,
                    "discounted_return": 0,
                    "key": key,
                    "model_params": model_params,
-                   "state_array": state_array,
+                   "state_feature": state_feature,
                    "state": state}
 
     def condition_function(val):
@@ -50,13 +50,13 @@ def full_return(env: Environment,
         val["key"], subkey_policy, subkey_mdp = jax.random.split(val["key"], 3)
 
         # (n_actions), (1,)
-        policy_log_probs, _ = model.apply(val["model_params"], val["state_array"])
+        policy_log_probs, _ = model.apply(val["model_params"], val["state_feature"])
         policy_probs = jnp.exp(policy_log_probs)
         action = jax.random.choice(subkey_policy, 
                                     env.action_space().n, 
                                     p=policy_probs)
 
-        val["state_array"], val["state"], reward, val["next_is_terminal"], _ = env.step(subkey_mdp, val["state"], action)
+        val["state_feature"], val["state"], reward, val["next_is_terminal"], _ = env.step(subkey_mdp, val["state"], action)
         val["discounted_return"] += (discount**val['t']) * reward
         val['t'] += 1
         
