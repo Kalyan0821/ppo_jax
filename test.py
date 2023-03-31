@@ -65,7 +65,26 @@ def full_return(env: Environment,
     val = jax.lax.while_loop(condition_function, body_function, initial_val)
     return val["discounted_return"]
 
+def evaluate(env: Environment,
+             key: jax.random.PRNGKey,
+             model_params: FrozenDict, 
+             model: NN,
+             n_eval_agents: int,
+             discount: float,
+             experience: int):
+    
+    print(f"Evaluating at experience {experience}")
 
+    key, *agents_subkeyEval = jax.random.split(key, n_eval_agents+1)
+    agents_subkeyEval = jnp.asarray(agents_subkeyEval)
+    returns = full_return(env,
+                          agents_subkeyEval,
+                          model_params,
+                          model,
+                          discount)
+    assert returns.shape == (n_eval_agents,)
+    print("Returns:", returns)
+    print('-------------')
 
-
-
+    
+    return returns

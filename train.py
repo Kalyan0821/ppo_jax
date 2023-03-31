@@ -6,7 +6,6 @@ import numpy as np
 from flax.training.checkpoints import save_checkpoint
 from model import NN
 from learning import learn_policy
-from test import full_return
 
 
 env_name = "CartPole-v1"
@@ -41,8 +40,6 @@ checkpoint_dir = "./checkpoints"
 
 assert minibatch_size <= n_agents*horizon
 env, env_params = gymnax.make(env_name)
-vecEnv_reset = jax.vmap(env.reset, in_axes=(0,))
-vecEnv_step = jax.vmap(env.step, in_axes=(0, 0, 0))
 
 key = jax.random.PRNGKey(SEED)
 key, subkey_env, subkey_model = jax.random.split(key, 3)
@@ -68,8 +65,7 @@ evals = dict()
 print("Outer steps:", n_outer_iters)
 
 
-learn_policy(vecEnv_reset,
-             vecEnv_step,
+learn_policy(env,
              key,
              model_params, 
              model,
@@ -87,32 +83,10 @@ learn_policy(vecEnv_reset,
              permute_batches,
              clip_epsilon,
              discount,
-             gae_lambda)
+             gae_lambda,
+             n_eval_agents,
+             eval_iter)
 
-
-
-# print("Summary:")
-# for experience in evals:
-#     avg_return = np.mean(evals[experience])
-#     std_return = np.std(evals[experience])
-#     print(f"Experience: {experience}. Returns: avg={avg_return},  std={std_return}")
-
-
-
-
-
-# if outer_iter % eval_iter == 0:
-#     experience = outer_iter * n_agents * horizon
-#     print("Evaluating ...")
-#     key, *eval_agent_keys = jax.random.split(key, n_eval_agents+1)
-#     eval_agent_keys = jnp.asarray(eval_agent_keys)
-#     returns = full_return(env,
-#                           eval_agent_keys,
-#                           model_params,
-#                           model,
-#                           eval_discount)
-#     evals[experience] = returns
-#     print(f"Experience: {experience}. Returns: {returns}\n")
 
 
 

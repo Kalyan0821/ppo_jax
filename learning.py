@@ -3,10 +3,10 @@ import optax
 import jax.numpy as jnp
 from functools import partial
 from flax.core.frozen_dict import FrozenDict
-from model import NN
-from typing import Callable
 import numpy as np
-
+from model import NN
+from gymnax.environments.environment import Environment
+from test import evaluate
 
 @partial(jax.jit, static_argnums=(2, 3, 4, 5, 6, 7))
 def loss_function(model_params: FrozenDict,
@@ -170,9 +170,9 @@ def batch_advantages_and_returns(values: jnp.array,
         td_error = rewards[t] + discount*next_value - values[t]
         advantage = td_error + (discount*gae_lambda)*next_advantage
         bootstrap_return = advantage + values[t]
+
         advantages.append(advantage)
         bootstrap_returns.append(bootstrap_return)
-
         next_advantage = advantage
 
     advantages = jnp.asarray(advantages[::-1])
@@ -180,8 +180,8 @@ def batch_advantages_and_returns(values: jnp.array,
 
     return advantages, bootstrap_returns
 
-def learn_policy(vecEnv_reset: Callable,
-                 vecEnv_step: Callable,
+
+def learn_policy(env: Environment,
                  key: jax.random.PRNGKey,
                  model_params: FrozenDict, 
                  model: NN,
@@ -199,15 +199,26 @@ def learn_policy(vecEnv_reset: Callable,
                  permute_batches: bool,
                  clip_epsilon: float,
                  discount: float,
-                 gae_lambda: float):
+                 gae_lambda: float,
+                 n_eval_agents: int,
+                 eval_iter: int):
+
+    vecEnv_reset = jax.vmap(env.reset, in_axes=(0,))
+    vecEnv_step = jax.vmap(env.step, in_axes=(0, 0, 0))
 
     key, *agents_subkeyReset = jax.random.split(key, n_agents+1)
     agents_subkeyReset = jnp.asarray(agents_subkeyReset)
     agents_stateFeature, agents_state = vecEnv_reset(agents_subkeyReset)  # (n_agents, n_features), (n_agents, .)
     optimizer_state = optimizer.init(model_params)
     
+    evals = dict()
     for outer_iter in range(n_outer_iters):
 
+        if outer_iter % eval_iter == 0:
+            experience = outer_iter * n_agents * horizon
+            evals[experience] = evaluate(env, key, model_params, model, n_eval_agents, discount, experience)
+
+        print("")
         agents_stateFeature_list = []  # (horizon, n_agents, n_features)
         agents_value_list = []   # (horizon + 1, n_agents), where column = [v_0, v_1, v_2, ..., v_H]
         agents_action_list = []  # (horizon, n_agents)
@@ -245,12 +256,11 @@ def learn_policy(vecEnv_reset: Callable,
             agents_stateFeature, agents_state, agents_reward, agents_nextTerminal, _ = vecEnv_step(
                                                                     agents_subkeyMDP, 
                                                                     agents_state, 
-                                                                    agents_action)
-            ######################################################        
+                                                                    agents_action)        
             agents_reward_list.append(agents_reward)
             agents_nextTerminal_list.append(agents_nextTerminal)
 
-        # Finally, also get v(S_horizon)
+        # Finally, also get v(S_horizon) for advantage calculation
         _, agents_value = model.apply(model_params, agents_stateFeature)
         agents_value = jnp.squeeze(agents_value, axis=-1)  # (n_agents,)
         agents_value_list.append(agents_value)
@@ -258,7 +268,11 @@ def learn_policy(vecEnv_reset: Callable,
         agents_value_array = jnp.asarray(agents_value_list)  # (horizon + 1, n_agents), where column = [v_0, v_1, v_2, ..., v_H]
         agents_reward_array = jnp.asarray(agents_reward_list)  # (horizon, n_agents), where column = [R_1, R_2, ..., R_H]
         agents_nextTerminal_array = jnp.asarray(agents_nextTerminal_list)  # (horizon, n_agents)
-    
+
+
+
+
+
         # Both: (horizon, n_agents)
         agents_advantage_array, agents_bootstrapReturn_array = batch_advantages_and_returns(
                                                                     agents_value_array,
@@ -277,12 +291,10 @@ def learn_policy(vecEnv_reset: Callable,
         batch["bootstrap_returns"] = agents_bootstrapReturn_array  # (horizon, n_agents)
 
 
-
-
-
-
         alpha = (1-outer_iter/n_outer_iters) if anneal else 1.
+        
         for epoch in range(n_epochs):
+
             key, permutation_key = jax.random.split(key)
             model_params, optimizer_state, minibatch_losses = batch_epoch(
                                                         batch,
@@ -302,8 +314,15 @@ def learn_policy(vecEnv_reset: Callable,
                                                         permute_batches,
                                                         )
             print(f"Epoch {epoch+1}: avg. loss = {np.mean(minibatch_losses)}, change = ({minibatch_losses[0]} --> {minibatch_losses[-1]})")
-
         print('-------------')
+
+
+    print("Summary:")
+    for experience in evals:
+        avg_return = np.mean(evals[experience])
+        std_return = np.std(evals[experience])
+        print(f"Experience: {experience}. Returns: avg={avg_return},  std={std_return}")
+
 
 
 
