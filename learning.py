@@ -132,7 +132,7 @@ def batch_epoch(model_params: FrozenDict,
 
 @partial(jax.vmap, in_axes=(0, None, 0, 0), out_axes=(0, 0))
 def sample_action_and_logLikelihood(key, n_actions, probs, logProbs):
-    assert probs.shape == (n_actions,)
+    assert probs.shape == logProbs.shape == (n_actions,)
 
     action = jax.random.choice(key, n_actions, p=probs)
     logLikelihood = logProbs[action]
@@ -166,7 +166,7 @@ def get_trajectories_and_improve(env: Environment,
 
     agents_reward_list = []  # (horizon, n_agents), where column = [R_1, R_2, ..., R_H]
     agents_nextTerminal_list = []  # (horizon, n_agents)
-    # agents_value_list = []   # (horizon + 1, n_agents), where column = [v_0, v_1, v_2, ..., v_H]
+    agents_value_list = []   # (horizon + 1, n_agents), where column = [v_0, v_1, v_2, ..., v_H]
     
     for t in range(horizon):
         key, *agents_subkeyPolicy = jax.random.split(key, n_agents+1)
@@ -197,36 +197,58 @@ def get_trajectories_and_improve(env: Environment,
         agents_stateFeature, agents_state, agents_reward, agents_nextTerminal, _ = vec_env_step(
                                                                 agents_subkeyMDP, 
                                                                 agents_state, 
-                                                                agents_action)
-        
+                                                                agents_action)    
         agents_reward_list.append(agents_reward)
+        agents_value_list.append(agents_value)
         agents_nextTerminal_list.append(agents_nextTerminal)
 
-    
-    agents_advantage_list = []  # (horizon, n_agents)
-    agents_bootstrapReturn_list = []  # (horizon, n_agents)
+    # Finally, also get v(S_horizon)
+    _, agents_value = model.apply(model_params, agents_stateFeature)
+    agents_value_list.append(agents_value)
 
-    agents_advantage_list, agents_bootstrapReturn_list = 
 
-    next_advantage = 0.
-    for t in reversed(range(horizon)):  # horizon-1, ..., 2, 1, 0
-        td_error = rewards[t] + discount*values[t+1] - values[t]
-        advantage = td_error + (discount*gae_lambda)*next_advantage
-        bootstrap_return = advantage + values[t]
-        advantages.append(advantage)
-        bootstrap_returns.append(bootstrap_return)
-        next_advantage = advantage
+    agents_reward_array = jnp.asarray(agents_reward_list)  
+    agents_value_array = jnp.asarray(agents_value_list)
+    agents_nextTerminal_array = jnp.asarray(agents_nextTerminal_list)
+    advantages_and_returns_info = (agents_reward_array, agents_value_array, agents_nextTerminal_array)
 
-    advantages = advantages[::-1]
-    bootstrap_returns = bootstrap_returns[::-1]
+    # Both: (horizon, n_agents)
+    agents_advantage_array, agents_bootstrapReturn_array = batch_advantages_and_returns(
+                                                                advantages_and_returns_info, 
+                                                                horizon,
+                                                                discount,
+                                                                gae_lambda)
+
 
     batch = dict()
     batch["states"] = jnp.asarray(agents_stateFeature_list)  # (horizon, n_agents, n_features)
     batch["actions"] = jnp.asarray(agents_action_list)  # (horizon, n_agents)
     batch["old_policy_log_likelihoods"] = jnp.asarray(agents_logLikelihood_list)  # (horizon, n_agents)
 
-    batch["advantages"] = jnp.asarray(agents_advantage_list)  # (horizon, n_agents)
-    batch["bootstrap_returns"] = jnp.asarray(agents_bootstrapReturn_list)  # (horizon, n_agents)
+    batch["advantages"] = agents_advantage_array  # (horizon, n_agents)
+    batch["bootstrap_returns"] = agents_bootstrapReturn_array  # (horizon, n_agents)
 
     return batch
 
+
+@partial(jax.vmap)
+def batch_advantages_and_returns(info: tuple[jnp.array],
+                                 n_agents: int,
+                                 horizon: int,
+                                 discount: float,
+                                 gae_lambda: float):
+    
+    pass
+
+
+    # next_advantage = 0.
+    # for t in reversed(range(horizon)):  # horizon-1, ..., 2, 1, 0
+    #     td_error = rewards[t] + discount*values[t+1] - values[t]
+    #     advantage = td_error + (discount*gae_lambda)*next_advantage
+    #     bootstrap_return = advantage + values[t]
+    #     advantages.append(advantage)
+    #     bootstrap_returns.append(bootstrap_return)
+    #     next_advantage = advantage
+
+    # advantages = advantages[::-1]
+    # bootstrap_returns = bootstrap_returns[::-1]
