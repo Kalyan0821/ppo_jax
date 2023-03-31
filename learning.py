@@ -2,10 +2,10 @@ import jax
 import optax
 import jax.numpy as jnp
 from functools import partial
-from gymnax.environments.environment import Environment
 from flax.core.frozen_dict import FrozenDict
 from model import NN
 from typing import Callable
+import numpy as np
 
 
 @partial(jax.jit, static_argnums=(2, 3, 4, 5, 6, 7))
@@ -159,11 +159,13 @@ def batch_advantages_and_returns(values: jnp.array,
 
     next_advantage = 0.
     for t in reversed(range(horizon)):  # horizon-1, ..., 2, 1, 0
-        if next_is_terminal[t]:
-            next_value = 0.
-            next_advantage = 0.
-        else:
-            next_value = values[t+1]
+        # if next_is_terminal[t]:
+        #     next_value = 0.
+        #     next_advantage = 0.
+        # else:
+        #     next_value = values[t+1]
+        next_value = jnp.where(next_is_terminal[t], 0., values[t+1])
+        next_advantage = jnp.where(next_is_terminal[t], 0., next_advantage)
 
         td_error = rewards[t] + discount*next_value - values[t]
         advantage = td_error + (discount*gae_lambda)*next_advantage
@@ -178,13 +180,11 @@ def batch_advantages_and_returns(values: jnp.array,
 
     return advantages, bootstrap_returns
 
-
 def learn_policy(vecEnv_reset: Callable,
                  vecEnv_step: Callable,
                  key: jax.random.PRNGKey,
                  model_params: FrozenDict, 
                  model: NN,
-                 optimizer_state: optax.OptState,
                  optimizer: optax.GradientTransformation,
                  n_actions: int,
                  n_outer_iters: int,
@@ -201,17 +201,19 @@ def learn_policy(vecEnv_reset: Callable,
                  discount: float,
                  gae_lambda: float):
 
-    key, agents_subkeyReset = jax.random.split(key, n_agents+1)
+    key, *agents_subkeyReset = jax.random.split(key, n_agents+1)
+    agents_subkeyReset = jnp.asarray(agents_subkeyReset)
     agents_stateFeature, agents_state = vecEnv_reset(agents_subkeyReset)  # (n_agents, n_features), (n_agents, .)
-
-    agents_stateFeature_list = []  # (horizon, n_agents, n_features)
-    agents_value_list = []   # (horizon + 1, n_agents), where column = [v_0, v_1, v_2, ..., v_H]
-    agents_action_list = []  # (horizon, n_agents)
-    agents_logLikelihood_list = []  # (horizon, n_agents)
-    agents_reward_list = []  # (horizon, n_agents), where column = [R_1, R_2, ..., R_H]
-    agents_nextTerminal_list = []  # (horizon, n_agents)
+    optimizer_state = optimizer.init(model_params)
     
     for outer_iter in range(n_outer_iters):
+
+        agents_stateFeature_list = []  # (horizon, n_agents, n_features)
+        agents_value_list = []   # (horizon + 1, n_agents), where column = [v_0, v_1, v_2, ..., v_H]
+        agents_action_list = []  # (horizon, n_agents)
+        agents_logLikelihood_list = []  # (horizon, n_agents)
+        agents_reward_list = []  # (horizon, n_agents), where column = [R_1, R_2, ..., R_H]
+        agents_nextTerminal_list = []  # (horizon, n_agents)
 
         for _ in range(horizon):
             key, *agents_subkeyPolicy = jax.random.split(key, n_agents+1)
@@ -250,6 +252,7 @@ def learn_policy(vecEnv_reset: Callable,
 
         # Finally, also get v(S_horizon)
         _, agents_value = model.apply(model_params, agents_stateFeature)
+        agents_value = jnp.squeeze(agents_value, axis=-1)  # (n_agents,)
         agents_value_list.append(agents_value)
 
         agents_value_array = jnp.asarray(agents_value_list)  # (horizon + 1, n_agents), where column = [v_0, v_1, v_2, ..., v_H]
@@ -274,6 +277,10 @@ def learn_policy(vecEnv_reset: Callable,
         batch["bootstrap_returns"] = agents_bootstrapReturn_array  # (horizon, n_agents)
 
 
+
+
+
+
         alpha = (1-outer_iter/n_outer_iters) if anneal else 1.
         for epoch in range(n_epochs):
             key, permutation_key = jax.random.split(key)
@@ -294,7 +301,9 @@ def learn_policy(vecEnv_reset: Callable,
                                                         clip_epsilon*alpha,
                                                         permute_batches,
                                                         )
-            print(f"Epoch {epoch+1}: avg. loss = {jnp.mean(minibatch_losses)}, change = ({minibatch_losses[0]} --> {minibatch_losses[-1]})")
+            print(f"Epoch {epoch+1}: avg. loss = {np.mean(minibatch_losses)}, change = ({minibatch_losses[0]} --> {minibatch_losses[-1]})")
+
+        print('-------------')
 
 
 
