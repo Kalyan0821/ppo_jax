@@ -40,6 +40,9 @@ checkpoint_dir = "./checkpoints"
 
 
 env, env_params = gymnax.make(env_name)
+vecEnv_reset = jax.vmap(env.reset, in_axes=(0, None))
+vecEnv_step = jax.vmap(env.step, in_axes=(0, 0, 0, None))
+
 key = jax.random.PRNGKey(SEED)
 key, subkey_env, subkey_model = jax.random.split(key, 3)
 state_feature, _ = env.reset(subkey_env)
@@ -93,7 +96,6 @@ for outer_iter in range(n_outer_iters):
     alpha = (1-outer_iter/n_outer_iters) if anneal else 1
 
     for epoch in range(n_epochs):
-        key, permutation_key = jax.random.split(key)
 
         model_params, optimizer_state, minibatch_losses = batch_epoch(
                                                     model_params, 

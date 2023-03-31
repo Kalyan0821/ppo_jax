@@ -5,18 +5,19 @@ from functools import partial
 from gymnax.environments.environment import Environment
 from flax.core.frozen_dict import FrozenDict
 from model import NN
+from typing import Callable
 
 
-@partial(jax.jit, static_argnums=(1, 4, 5, 6, 7, 8))
-def loss_function(model_params: FrozenDict, 
-                  model: NN,
+@partial(jax.jit, static_argnums=(2, 3, 4, 5, 6, 7))
+def loss_function(model_params: FrozenDict,
                   minibatch: dict[str, jnp.array],
-                  clip_epsilon: float,
+                  model: NN,
+                  n_actions: int,
+                  minibatch_size: int,
                   val_loss_coeff: float,
                   entropy_coeff: float,
-                  minibatch_size: int,
-                  n_actions: int,
-                  normalize_advantages: bool):
+                  normalize_advantages: bool,
+                  clip_epsilon: float):
         
     states = minibatch["states"]  # (minibatch_size, n_features)
     actions = minibatch["actions"]  # (minibatch_size,)
@@ -69,32 +70,33 @@ def permute(batch, key):
     return batch
 
 
-@partial(jax.jit, static_argnums=(1, 2, 7, 8, 9, 10, 11, 12, 13, 14))
-def batch_epoch(model_params: FrozenDict, 
-                model: NN,
-                optimizer: optax.GradientTransformation,
-                optimizer_state: optax.OptState,
-                batch: dict[str, jnp.array],
+@partial(jax.jit, static_argnums=(3, 5, 6, 7, 8, 9, 10, 11, 12, 14))
+def batch_epoch(batch: dict[str, jnp.array],
                 permutation_key: jax.random.PRNGKey,
-                clip_epsilon: float,
+                model_params: FrozenDict,
+                model: NN,
+                optimizer_state: optax.OptState,
+                optimizer: optax.GradientTransformation,
+                n_actions: int,
+                horizon: int,
+                n_agents: int,
+                minibatch_size: int,
                 val_loss_coeff: float,
                 entropy_coeff: float,
-                n_agents: int,
-                horizon: int,
-                minibatch_size: int,
-                n_actions: int,
-                permute_batch=True,
-                normalize_advantages=False):
-    """ batch: each jnp.array: (n_agents, horizon, ...) """
+                normalize_advantages: bool,
+                clip_epsilon: float,
+                permute_batch: bool,
+                ):
+    """ batch: each jnp.array: (horizon, n_agents, ...) """
 
-    assert batch["states"].shape[:-1] == (n_agents, horizon)
+    assert batch["states"].shape[:-1] == (horizon, n_agents)
 
     if permute_batch:
         batch = permute(batch, permutation_key)
-        assert batch["states"].shape[:-1] == (n_agents, horizon)
+        assert batch["states"].shape[:-1] == (horizon, n_agents)
 
-    n_iters = n_agents*horizon // minibatch_size  # number of minibatches
-    assert n_iters*minibatch_size == n_agents*horizon
+    n_iters = horizon*n_agents // minibatch_size  # number of minibatches
+    assert n_iters*minibatch_size == horizon*n_agents
 
     def reshape(x):
         new_shape = (n_iters, minibatch_size) + x.shape[2:]
@@ -111,15 +113,15 @@ def batch_epoch(model_params: FrozenDict,
         assert minibatch["states"].shape[0] == minibatch_size
 
         minibatch_loss, gradient = val_and_grad_function(model_params,
-                                                         model,
                                                          minibatch,
-                                                         clip_epsilon,
+                                                         model,
+                                                         n_actions,
+                                                         minibatch_size,
                                                          val_loss_coeff,
                                                          entropy_coeff,
-                                                         minibatch_size,
-                                                         n_actions,
-                                                         normalize_advantages)
-
+                                                         normalize_advantages,
+                                                         clip_epsilon)
+        
         param_updates, optimizer_state = optimizer.update(gradient,
                                                           optimizer_state,
                                                           model_params)
@@ -130,6 +132,7 @@ def batch_epoch(model_params: FrozenDict,
     return model_params, optimizer_state, minibatch_losses
 
 
+@partial(jax.jit, static_argnums=1)
 @partial(jax.vmap, in_axes=(0, None, 0, 0), out_axes=(0, 0))
 def sample_action_and_logLikelihood(key, n_actions, probs, logProbs):
     assert probs.shape == logProbs.shape == (n_actions,)
@@ -139,116 +142,159 @@ def sample_action_and_logLikelihood(key, n_actions, probs, logProbs):
     return (action, logLikelihood)
 
 
-@partial(jax.jit, static_argnums=(0, 3, 4, 5, 6))
-@partial(jax.vmap, in_axes=(None, 0, None, None, None, None, None))  # run on several agents in parallel
-def get_trajectories_and_improve(env: Environment,
-                                 key: jax.random.PRNGKey,
-                                 model_params: FrozenDict, 
-                                 model: NN,
+@partial(jax.jit, static_argnums=(3, 4, 5))
+@partial(jax.vmap, in_axes=(1, 1, 1, None, None, None), out_axes=(1, 1))
+def batch_advantages_and_returns(values: jnp.array,
+                                 rewards: jnp.array,
+                                 next_is_terminal: jnp.array,
                                  horizon: int,
                                  discount: float,
                                  gae_lambda: float):
+    
+    assert rewards.shape == next_is_terminal.shape == (horizon,)
+    assert values.shape == (horizon + 1,)
 
-    vec_env_reset = jax.vmap(env.reset, in_axes=(0, None))
-    vec_env_step = jax.vmap(env.step, in_axes=(0, 0, 0, None))
-    vec_random_choice = jax.vmap(jax.random.choice, in_axes=(0, 0, None, None, None, None))
+    advantages = []
+    bootstrap_returns = []
 
-    n_actions = env.action_space().n
+    next_advantage = 0.
+    for t in reversed(range(horizon)):  # horizon-1, ..., 2, 1, 0
+        if next_is_terminal[t]:
+            next_value = 0.
+            next_advantage = 0.
+        else:
+            next_value = values[t+1]
+
+        td_error = rewards[t] + discount*next_value - values[t]
+        advantage = td_error + (discount*gae_lambda)*next_advantage
+        bootstrap_return = advantage + values[t]
+        advantages.append(advantage)
+        bootstrap_returns.append(bootstrap_return)
+
+        next_advantage = advantage
+
+    advantages = jnp.asarray(advantages[::-1])
+    bootstrap_returns = jnp.asarray(bootstrap_returns[::-1])
+
+    return advantages, bootstrap_returns
+
+
+def learn_policy(vecEnv_reset: Callable,
+                 vecEnv_step: Callable,
+                 key: jax.random.PRNGKey,
+                 model_params: FrozenDict, 
+                 model: NN,
+                 optimizer_state: optax.OptState,
+                 optimizer: optax.GradientTransformation,
+                 n_actions: int,
+                 n_outer_iters: int,
+                 horizon: int,
+                 n_epochs: int,
+                 n_agents: int,
+                 minibatch_size: int,
+                 val_loss_coeff: float,
+                 entropy_coeff: float,
+                 anneal: bool,
+                 normalize_advantages: bool,
+                 permute_batches: bool,
+                 clip_epsilon: float,
+                 discount: float,
+                 gae_lambda: float):
 
     key, agents_subkeyReset = jax.random.split(key, n_agents+1)
-
-    # (n_agents, n_features), (n_agents, .)
-    agents_stateFeature, agents_state = vec_env_reset(agents_subkeyReset)
+    agents_stateFeature, agents_state = vecEnv_reset(agents_subkeyReset)  # (n_agents, n_features), (n_agents, .)
 
     agents_stateFeature_list = []  # (horizon, n_agents, n_features)
+    agents_value_list = []   # (horizon + 1, n_agents), where column = [v_0, v_1, v_2, ..., v_H]
     agents_action_list = []  # (horizon, n_agents)
     agents_logLikelihood_list = []  # (horizon, n_agents)
-
     agents_reward_list = []  # (horizon, n_agents), where column = [R_1, R_2, ..., R_H]
     agents_nextTerminal_list = []  # (horizon, n_agents)
-    agents_value_list = []   # (horizon + 1, n_agents), where column = [v_0, v_1, v_2, ..., v_H]
     
-    for t in range(horizon):
-        key, *agents_subkeyPolicy = jax.random.split(key, n_agents+1)
-        key, *agents_subkeyMDP = jax.random.split(key, n_agents+1)
-        agents_subkeyPolicy = jnp.asarray(agents_subkeyPolicy)  # (n_agents, ...)
-        agents_subkeyMDP = jnp.asarray(agents_subkeyMDP)  # (n_agents, ...)
+    for outer_iter in range(n_outer_iters):
 
-        # (n_agents, n_actions), (n_agents, 1)
-        agents_logProbs, agents_value = model.apply(model_params, agents_stateFeature)
-        agents_probs = jnp.exp(agents_logProbs)
-        agents_value = jnp.squeeze(agents_value, axis=-1)  # (n_agents,)
-        assert agents_probs.shape == (n_agents, n_actions)
+        for _ in range(horizon):
+            key, *agents_subkeyPolicy = jax.random.split(key, n_agents+1)
+            key, *agents_subkeyMDP = jax.random.split(key, n_agents+1)
+            agents_subkeyPolicy = jnp.asarray(agents_subkeyPolicy)  # (n_agents, ...)
+            agents_subkeyMDP = jnp.asarray(agents_subkeyMDP)  # (n_agents, ...)
 
-        # (n_agents,.), int, (n_agents,n_actions), (n_agents,n_actions) -> (n_agents,), (n_agents,)
-        agents_action, agents_logLikelihood = sample_action_and_logLikelihood(
-                                                                agents_subkeyPolicy, 
-                                                                n_actions, 
-                                                                agents_probs,
-                                                                agents_logProbs)
-        assert agents_action.shape == (n_agents,)
-        assert agents_logLikelihood.shape == (n_agents,)
+            # (n_agents, n_actions), (n_agents, 1)
+            agents_logProbs, agents_value = model.apply(model_params, agents_stateFeature)
+            agents_probs = jnp.exp(agents_logProbs)
+            agents_value = jnp.squeeze(agents_value, axis=-1)  # (n_agents,)
+            assert agents_probs.shape == (n_agents, n_actions)
 
-        agents_stateFeature_list.append(agents_stateFeature)
-        agents_action_list.append(agents_action)
-        agents_logLikelihood_list.append(agents_logLikelihood)
+            # (n_agents,.), int, (n_agents,n_actions), (n_agents,n_actions) --> (n_agents,), (n_agents,)
+            agents_action, agents_logLikelihood = sample_action_and_logLikelihood(
+                                                                    agents_subkeyPolicy, 
+                                                                    n_actions, 
+                                                                    agents_probs,
+                                                                    agents_logProbs)
+            assert agents_action.shape == (n_agents,)
+            assert agents_logLikelihood.shape == (n_agents,)
 
-        ################### MDP TRANSITION ###################        
-        agents_stateFeature, agents_state, agents_reward, agents_nextTerminal, _ = vec_env_step(
-                                                                agents_subkeyMDP, 
-                                                                agents_state, 
-                                                                agents_action)    
-        agents_reward_list.append(agents_reward)
+            agents_stateFeature_list.append(agents_stateFeature)
+            agents_value_list.append(agents_value)
+            agents_action_list.append(agents_action)
+            agents_logLikelihood_list.append(agents_logLikelihood)
+
+            ################### MDP TRANSITION ###################        
+            agents_stateFeature, agents_state, agents_reward, agents_nextTerminal, _ = vecEnv_step(
+                                                                    agents_subkeyMDP, 
+                                                                    agents_state, 
+                                                                    agents_action)
+            ######################################################        
+            agents_reward_list.append(agents_reward)
+            agents_nextTerminal_list.append(agents_nextTerminal)
+
+        # Finally, also get v(S_horizon)
+        _, agents_value = model.apply(model_params, agents_stateFeature)
         agents_value_list.append(agents_value)
-        agents_nextTerminal_list.append(agents_nextTerminal)
 
-    # Finally, also get v(S_horizon)
-    _, agents_value = model.apply(model_params, agents_stateFeature)
-    agents_value_list.append(agents_value)
-
-
-    agents_reward_array = jnp.asarray(agents_reward_list)  
-    agents_value_array = jnp.asarray(agents_value_list)
-    agents_nextTerminal_array = jnp.asarray(agents_nextTerminal_list)
-    advantages_and_returns_info = (agents_reward_array, agents_value_array, agents_nextTerminal_array)
-
-    # Both: (horizon, n_agents)
-    agents_advantage_array, agents_bootstrapReturn_array = batch_advantages_and_returns(
-                                                                advantages_and_returns_info, 
-                                                                horizon,
-                                                                discount,
-                                                                gae_lambda)
-
-
-    batch = dict()
-    batch["states"] = jnp.asarray(agents_stateFeature_list)  # (horizon, n_agents, n_features)
-    batch["actions"] = jnp.asarray(agents_action_list)  # (horizon, n_agents)
-    batch["old_policy_log_likelihoods"] = jnp.asarray(agents_logLikelihood_list)  # (horizon, n_agents)
-
-    batch["advantages"] = agents_advantage_array  # (horizon, n_agents)
-    batch["bootstrap_returns"] = agents_bootstrapReturn_array  # (horizon, n_agents)
-
-    return batch
-
-
-@partial(jax.vmap)
-def batch_advantages_and_returns(info: tuple[jnp.array],
-                                 n_agents: int,
-                                 horizon: int,
-                                 discount: float,
-                                 gae_lambda: float):
+        agents_value_array = jnp.asarray(agents_value_list)  # (horizon + 1, n_agents), where column = [v_0, v_1, v_2, ..., v_H]
+        agents_reward_array = jnp.asarray(agents_reward_list)  # (horizon, n_agents), where column = [R_1, R_2, ..., R_H]
+        agents_nextTerminal_array = jnp.asarray(agents_nextTerminal_list)  # (horizon, n_agents)
     
-    pass
+        # Both: (horizon, n_agents)
+        agents_advantage_array, agents_bootstrapReturn_array = batch_advantages_and_returns(
+                                                                    agents_value_array,
+                                                                    agents_reward_array,
+                                                                    agents_nextTerminal_array,
+                                                                    horizon,
+                                                                    discount,
+                                                                    gae_lambda)
+        assert agents_advantage_array.shape == agents_bootstrapReturn_array.shape == (horizon, n_agents)
+
+        batch = dict()
+        batch["states"] = jnp.asarray(agents_stateFeature_list)  # (horizon, n_agents, n_features)
+        batch["actions"] = jnp.asarray(agents_action_list)  # (horizon, n_agents)
+        batch["old_policy_log_likelihoods"] = jnp.asarray(agents_logLikelihood_list)  # (horizon, n_agents)
+        batch["advantages"] = agents_advantage_array  # (horizon, n_agents)
+        batch["bootstrap_returns"] = agents_bootstrapReturn_array  # (horizon, n_agents)
 
 
-    # next_advantage = 0.
-    # for t in reversed(range(horizon)):  # horizon-1, ..., 2, 1, 0
-    #     td_error = rewards[t] + discount*values[t+1] - values[t]
-    #     advantage = td_error + (discount*gae_lambda)*next_advantage
-    #     bootstrap_return = advantage + values[t]
-    #     advantages.append(advantage)
-    #     bootstrap_returns.append(bootstrap_return)
-    #     next_advantage = advantage
+        alpha = (1-outer_iter/n_outer_iters) if anneal else 1.
+        for epoch in range(n_epochs):
+            key, permutation_key = jax.random.split(key)
+            model_params, optimizer_state, minibatch_losses = batch_epoch(
+                                                        batch,
+                                                        permutation_key,
+                                                        model_params, 
+                                                        model,
+                                                        optimizer_state,
+                                                        optimizer,
+                                                        n_actions,
+                                                        horizon,
+                                                        n_agents,
+                                                        minibatch_size,
+                                                        val_loss_coeff,
+                                                        entropy_coeff,
+                                                        normalize_advantages,
+                                                        clip_epsilon*alpha,
+                                                        permute_batches,
+                                                        )
+            print(f"Epoch {epoch+1}: avg. loss = {jnp.mean(minibatch_losses)}, change = ({minibatch_losses[0]} --> {minibatch_losses[-1]})")
 
-    # advantages = advantages[::-1]
-    # bootstrap_returns = bootstrap_returns[::-1]
+
+
