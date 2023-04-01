@@ -8,48 +8,58 @@ from model import NN
 from learning import learn_policy
 
 
-env_name = "CartPole-v1"
+# env_name = "CartPole-v1"
+env_name = "Freeway-MinAtar"
+
 
 SEED = 0
-total_experience = 200000
-lr = 2.5e-4
+total_experience = int(1e6)
+
+lr = 1e-6
 n_agents = 8
-horizon = 64
-n_epochs = 4
-minibatch_size = 16
+horizon = 32
+n_epochs = 16
+minibatch_size = 64
 # minibatch_size = n_agents*horizon  # for 1 minibatch per epoch
 hidden_layer_sizes = (64, 64)
 normalize_advantages = True
 anneal = True
+
 permute_batches = True
 clip_epsilon = 0.2
 entropy_coeff = 0.01
 val_loss_coeff = 0.5
 discount = 0.99
 gae_lambda = 0.95
-n_eval_agents = 8
+n_eval_agents = 32
 eval_discount = 1.0
-eval_iter = 20
-checkpoint_iter = 20
+eval_iter = 40
+checkpoint_iter = 40
 checkpoint_dir = "./checkpoints"
 
 
 assert minibatch_size <= n_agents*horizon
-env, env_params = gymnax.make(env_name)
 
+env, env_params = gymnax.make(env_name)
 key = jax.random.PRNGKey(SEED)
 key, subkey_env, subkey_model = jax.random.split(key, 3)
 state_feature, _ = env.reset(subkey_env)
-n_features = state_feature.size
 n_actions = env.action_space().n
 
+model = NN(hidden_layer_sizes=hidden_layer_sizes, 
+           n_actions=n_actions, 
+           single_input_shape=state_feature.shape)
+model_params = model.init(subkey_model, jnp.zeros(state_feature.shape))
 
-model = NN(hidden_layer_sizes=hidden_layer_sizes, n_actions=n_actions)
-model_params = model.init(subkey_model, jnp.zeros(n_features))
+n_outer_iters = total_experience // (n_agents * horizon)
+n_iters_per_epoch = n_agents*horizon // minibatch_size  # num_minibatches
+n_inner_iters = n_epochs * n_iters_per_epoch 
 
-n_outer_iters = total_experience // (n_agents * horizon)  # loop_steps
-n_iters_per_epoch = n_agents*horizon // minibatch_size
-n_inner_iters = n_epochs * n_iters_per_epoch
+print("\nState feature shape:", state_feature.shape)
+print("Action space:", n_actions)
+print("Minibatches per epoch:", n_iters_per_epoch)
+print("Outer steps:", n_outer_iters, '\n')
+
 
 if anneal:
     lr = optax.linear_schedule(init_value=lr, 
@@ -57,8 +67,6 @@ if anneal:
                                transition_steps=n_outer_iters*n_inner_iters)
 optimizer = optax.adam(lr)
 
-evals = dict()
-print("Outer steps:", n_outer_iters)
 evals = learn_policy(env,
                      key,
                      model_params, 
@@ -86,7 +94,7 @@ print("Summary:")
 for experience in evals:
     avg_return = np.mean(evals[experience])
     std_return = np.std(evals[experience])
-    print(f"Experience: {experience}. Returns: avg={avg_return},  std={std_return}")
+    print(f"Experience: {experience}. Avg. return = {avg_return}, std={std_return}")
 
 
 

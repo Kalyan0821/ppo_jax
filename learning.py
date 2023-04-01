@@ -9,6 +9,7 @@ from typing import Callable
 from gymnax.environments.environment import Environment
 from test import evaluate
 
+
 @partial(jax.jit, static_argnums=(2, 3, 4, 5, 6, 7))
 def loss_function(model_params: FrozenDict,
                   minibatch: dict[str, jnp.array],
@@ -60,7 +61,7 @@ def loss_function(model_params: FrozenDict,
 
 @jax.jit
 def permute(batch, key):
-    """ batch: each jnp.array: (n_agents, horizon, ...) """
+    """ batch: each jnp.array: (horizon, n_agents, ...) """
 
     _, key0, key1 = jax.random.split(key, 3)
 
@@ -90,11 +91,11 @@ def batch_epoch(batch: dict[str, jnp.array],
                 ):
     """ batch: each jnp.array: (horizon, n_agents, ...) """
 
-    assert batch["states"].shape[:-1] == (horizon, n_agents)
+    assert batch["states"].shape[:2] == (horizon, n_agents)
 
     if permute_batch:
         batch = permute(batch, permutation_key)
-        assert batch["states"].shape[:-1] == (horizon, n_agents)
+        assert batch["states"].shape[:2] == (horizon, n_agents)
 
     n_iters = horizon*n_agents // minibatch_size  # number of minibatches
     assert n_iters*minibatch_size == horizon*n_agents
@@ -133,7 +134,7 @@ def batch_epoch(batch: dict[str, jnp.array],
     return model_params, optimizer_state, minibatch_losses
 
 
-@partial(jax.jit, static_argnums=1)
+@partial(jax.jit, static_argnums=(1,))
 @partial(jax.vmap, in_axes=(0, None, 0, 0), out_axes=(0, 0))
 def sample_action_and_logLikelihood(key, n_actions, probs, logProbs):
     assert probs.shape == logProbs.shape == (n_actions,)
@@ -180,6 +181,7 @@ def batch_advantages_and_returns(values: jnp.array,
     bootstrap_returns = jnp.asarray(bootstrap_returns[::-1])
 
     return advantages, bootstrap_returns
+
 
 @partial(jax.jit, static_argnums=(2, 5, 6, 7, 8, 9, 10))
 def sample_batch(agents_stateFeature: jnp.array,
@@ -302,8 +304,7 @@ def learn_policy(env: Environment,
             experience = outer_iter * n_agents * horizon
             print(f"Evaluating at experience {experience}")
             key, key_eval = jax.random.split(key)
-
-            evals[experience] = evaluate(env, key_eval, model_params, model, n_eval_agents, eval_discount)
+            evals[experience] = evaluate(env, key_eval, model_params, model, n_actions, n_eval_agents, eval_discount)
             print("Returns:", evals[experience])
             print('-------------')
 

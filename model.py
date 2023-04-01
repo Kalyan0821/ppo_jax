@@ -6,10 +6,20 @@ class NN(nn.Module):
 
     hidden_layer_sizes: tuple[int]
     n_actions: int
+    single_input_shape: tuple[int]
 
     @nn.compact
     def __call__(self, x: jnp.array):
         """ x: (n_features,) """
+
+        # flatten input features if required
+        if x.shape == self.single_input_shape:
+            x = jnp.ravel(x)
+        elif x.shape[1:] == self.single_input_shape:
+            x = jnp.reshape(x, (x.shape[0], -1))
+        else: 
+            raise NotImplementedError
+
 
         # Shared layers
         for l, size in enumerate(self.hidden_layer_sizes):
