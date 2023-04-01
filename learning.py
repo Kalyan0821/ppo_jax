@@ -299,9 +299,9 @@ def learn_policy(env: Environment,
     
     evals = dict()
     for outer_iter in range(n_outer_iters):
-
+        experience = outer_iter * n_agents * horizon
+        
         if outer_iter % eval_iter == 0:
-            experience = outer_iter * n_agents * horizon
             print(f"Evaluating at experience {experience}")
             key, key_eval = jax.random.split(key)
             evals[experience] = evaluate(env, key_eval, model_params, model, n_actions, n_eval_agents, eval_discount)
@@ -347,6 +347,12 @@ def learn_policy(env: Environment,
             print(f"Epoch {epoch+1}: avg. loss = {np.mean(minibatch_losses)}")
 
         print('-------------')
+
+    print(f"Evaluating at experience {experience}")
+    key, key_eval = jax.random.split(key)
+    evals[experience] = evaluate(env, key_eval, model_params, model, n_actions, n_eval_agents, eval_discount)
+    print("Returns:", evals[experience])
+    print('-------------')
 
     return evals
 

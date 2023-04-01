@@ -13,7 +13,7 @@ from learning import learn_policy
 env_name = "MountainCar-v0"
 
 SEED = 0
-total_experience = 250000
+total_experience = 500000
 
 lr_begin = 5e-3
 # lr_end = 0
