@@ -55,36 +55,28 @@ def full_return(env: Environment,
         action = jax.random.choice(subkey_policy, 
                                     env.action_space().n, 
                                     p=policy_probs)
-
+        
         val["state_feature"], val["state"], reward, val["next_is_terminal"], _ = env.step(subkey_mdp, val["state"], action)
         val["discounted_return"] += (discount**val['t']) * reward
         val['t'] += 1
-        
         return val
 
     val = jax.lax.while_loop(condition_function, body_function, initial_val)
     return val["discounted_return"]
 
+@partial(jax.jit, static_argnums=(0, 3, 4, 5))
 def evaluate(env: Environment,
              key: jax.random.PRNGKey,
              model_params: FrozenDict, 
              model: NN,
              n_eval_agents: int,
-             discount: float,
-             experience: int):
+             discount: float):
     
-    print(f"Evaluating at experience {experience}")
-
-    key, *agents_subkeyEval = jax.random.split(key, n_eval_agents+1)
-    agents_subkeyEval = jnp.asarray(agents_subkeyEval)
+    agents_subkeyEval = jax.random.split(key, n_eval_agents)
     returns = full_return(env,
                           agents_subkeyEval,
                           model_params,
                           model,
                           discount)
     assert returns.shape == (n_eval_agents,)
-    print("Returns:", returns)
-    print('-------------')
-
-    
     return returns

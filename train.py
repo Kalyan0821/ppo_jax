@@ -12,13 +12,10 @@ env_name = "CartPole-v1"
 
 SEED = 0
 total_experience = 200000
-lr = 1e-2
+lr = 2.5e-4
 n_agents = 8
-
-# horizon = 128
-horizon = 4
-
-n_epochs = 16
+horizon = 64
+n_epochs = 4
 minibatch_size = 16
 # minibatch_size = n_agents*horizon  # for 1 minibatch per epoch
 hidden_layer_sizes = (64, 64)
@@ -30,8 +27,7 @@ entropy_coeff = 0.01
 val_loss_coeff = 0.5
 discount = 0.99
 gae_lambda = 0.95
-
-n_eval_agents = 16
+n_eval_agents = 8
 eval_discount = 1.0
 eval_iter = 20
 checkpoint_iter = 20
@@ -63,30 +59,34 @@ optimizer = optax.adam(lr)
 
 evals = dict()
 print("Outer steps:", n_outer_iters)
+evals = learn_policy(env,
+                     key,
+                     model_params, 
+                     model,
+                     optimizer,
+                     n_actions,
+                     n_outer_iters,
+                     horizon,
+                     n_epochs,
+                     n_agents,
+                     minibatch_size,
+                     val_loss_coeff,
+                     entropy_coeff,
+                     anneal,
+                     normalize_advantages,
+                     permute_batches,
+                     clip_epsilon,
+                     discount,
+                     gae_lambda,
+                     eval_discount,
+                     n_eval_agents,
+                     eval_iter)
 
-
-learn_policy(env,
-             key,
-             model_params, 
-             model,
-             optimizer,
-             n_actions,
-             n_outer_iters,
-             horizon,
-             n_epochs,
-             n_agents,
-             minibatch_size,
-             val_loss_coeff,
-             entropy_coeff,
-             anneal,
-             normalize_advantages,
-             permute_batches,
-             clip_epsilon,
-             discount,
-             gae_lambda,
-             n_eval_agents,
-             eval_iter)
-
+print("Summary:")
+for experience in evals:
+    avg_return = np.mean(evals[experience])
+    std_return = np.std(evals[experience])
+    print(f"Experience: {experience}. Returns: avg={avg_return},  std={std_return}")
 
 
 
