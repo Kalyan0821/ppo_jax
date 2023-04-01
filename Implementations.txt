@@ -1,0 +1,18 @@
+ICLR Blog post:
+https://iclr-blog-track.github.io/2022/03/25/ppo-implementation-details/
+
+OpenAI:
+https://github.com/openai/baselines/tree/tf2/baselines/ppo2
+https://github.com/openai/spinningup/tree/master/spinup/algos/pytorch/ppo
+
+Flax:
+https://github.com/google/flax/tree/main/examples/ppo
+
+Stable Baselines:
+https://github.com/DLR-RM/stable-baselines3/tree/master/stable_baselines3/ppo
+
+CleanRL:
+https://github.com/vwxyzjn/cleanrl/blob/master/cleanrl/ppo_atari_envpool_xla_jax.py
+
+Gymnax:
+https://github.com/RobertTLange/gymnax-blines/blob/39bc4466b86445bd6b0c997e5fd8c3651c97c8a6/utils/ppo.py

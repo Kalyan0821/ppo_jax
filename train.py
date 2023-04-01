@@ -9,17 +9,20 @@ from learning import learn_policy
 
 
 # env_name = "CartPole-v1"
-env_name = "SpaceInvaders-MinAtar"
-
+# env_name = "SpaceInvaders-MinAtar"
+env_name = "MountainCar-v0"
 
 SEED = 0
-total_experience = int(1e6)
+total_experience = 250000
 
-lr = 2.5e-4
-n_agents = 8
+lr_begin = 5e-3
+# lr_end = 0
+lr_end = 5e-4
+
+n_agents = 16
 horizon = 32
-n_epochs = 16
-minibatch_size = 64
+n_epochs = 64
+minibatch_size = 128
 # minibatch_size = n_agents*horizon  # for 1 minibatch per epoch
 hidden_layer_sizes = (64, 64)
 normalize_advantages = True
@@ -27,11 +30,13 @@ anneal = True
 
 permute_batches = True
 clip_epsilon = 0.2
-entropy_coeff = 0.01
+# entropy_coeff = 0.01
+entropy_coeff = 0.003
+
 val_loss_coeff = 0.5
 discount = 0.99
 gae_lambda = 0.95
-n_eval_agents = 32
+n_eval_agents = 164
 eval_discount = 1.0
 eval_iter = 40
 checkpoint_iter = 40
@@ -62,8 +67,8 @@ print("Outer steps:", n_outer_iters, '\n')
 
 
 if anneal:
-    lr = optax.linear_schedule(init_value=lr, 
-                               end_value=0, 
+    lr = optax.linear_schedule(init_value=lr_begin, 
+                               end_value=lr_end, 
                                transition_steps=n_outer_iters*n_inner_iters)
 optimizer = optax.adam(lr)
 
