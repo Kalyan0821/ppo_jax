@@ -9,13 +9,13 @@ from learning import learn_policy
 
 
 # env_name = "CartPole-v1"
-env_name = "Freeway-MinAtar"
+env_name = "SpaceInvaders-MinAtar"
 
 
 SEED = 0
 total_experience = int(1e6)
 
-lr = 1e-6
+lr = 2.5e-4
 n_agents = 8
 horizon = 32
 n_epochs = 16
