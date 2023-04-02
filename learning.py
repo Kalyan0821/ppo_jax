@@ -3,11 +3,8 @@ import optax
 import jax.numpy as jnp
 from functools import partial
 from flax.core.frozen_dict import FrozenDict
-import numpy as np
 from model import NN
 from typing import Callable
-from gymnax.environments.environment import Environment
-from test import evaluate
 
 
 @partial(jax.jit, static_argnums=(2, 3, 4, 5, 6, 7))
@@ -54,6 +51,7 @@ def loss_function(model_params: FrozenDict,
     ppo_loss = -1. * jnp.mean(jnp.minimum(policy_gradient_losses, clip_losses))
     val_loss = 0.5 * jnp.mean((values-bootstrap_returns)**2)    
     entropy_bonus = jnp.mean(-jnp.exp(policy_log_probs)*policy_log_probs) * n_actions
+
 
     loss = ppo_loss + val_loss_coeff*val_loss - entropy_coeff*entropy_bonus
     return loss
@@ -261,95 +259,4 @@ def sample_batch(agents_stateFeature: jnp.array,
     batch["bootstrap_returns"] = agents_bootstrapReturn_array  # (horizon, n_agents)
 
     return agents_stateFeature, agents_state, batch, key
-
-
-def learn_policy(env: Environment,
-                 key: jax.random.PRNGKey,
-                 model_params: FrozenDict, 
-                 model: NN,
-                 optimizer: optax.GradientTransformation,
-                 n_actions: int,
-                 n_outer_iters: int,
-                 horizon: int,
-                 n_epochs: int,
-                 n_agents: int,
-                 minibatch_size: int,
-                 val_loss_coeff: float,
-                 entropy_coeff: float,
-                 anneal: bool,
-                 normalize_advantages: bool,
-                 permute_batches: bool,
-                 clip_epsilon: float,
-                 discount: float,
-                 gae_lambda: float,
-                 eval_discount: float,
-                 n_eval_agents: int,
-                 eval_iter: int):
-
-    vecEnv_reset = jax.vmap(env.reset, in_axes=(0,))
-    vecEnv_step = jax.vmap(env.step, in_axes=(0, 0, 0))
-
-    key, *agents_subkeyReset = jax.random.split(key, n_agents+1)
-    agents_subkeyReset = jnp.asarray(agents_subkeyReset)
-    agents_stateFeature, agents_state = vecEnv_reset(agents_subkeyReset)  # (n_agents, n_features), (n_agents, .)
-    optimizer_state = optimizer.init(model_params)
-    
-    evals = dict()
-    for outer_iter in range(n_outer_iters):
-        experience = outer_iter * n_agents * horizon
-        
-        if outer_iter % eval_iter == 0:
-            print(f"Evaluating at experience {experience}")
-            key, key_eval = jax.random.split(key)
-            evals[experience] = evaluate(env, key_eval, model_params, model, n_actions, n_eval_agents, eval_discount)
-            print("Returns:", evals[experience])
-            print('-------------')
-
-        print(f"Step {outer_iter+1}:")
-        agents_stateFeature, agents_state, batch, key = sample_batch(agents_stateFeature,
-                                                                     agents_state,
-                                                                     vecEnv_step,
-                                                                     key,
-                                                                     model_params, 
-                                                                     model,
-                                                                     n_actions,
-                                                                     horizon,
-                                                                     n_agents,
-                                                                     discount,
-                                                                     gae_lambda)  
-        # (agents_stateFeature, agents_state) returned were the last ones seen in this step, and will initialize the next step
-        assert agents_stateFeature.shape[0] == n_agents
-
-        alpha = (1-outer_iter/n_outer_iters) if anneal else 1.
-
-        for epoch in range(n_epochs):
-            key, permutation_key = jax.random.split(key)
-            model_params, optimizer_state, minibatch_losses = batch_epoch(
-                                                        batch,
-                                                        permutation_key,
-                                                        model_params, 
-                                                        model,
-                                                        optimizer_state,
-                                                        optimizer,
-                                                        n_actions,
-                                                        horizon,
-                                                        n_agents,
-                                                        minibatch_size,
-                                                        val_loss_coeff,
-                                                        entropy_coeff,
-                                                        normalize_advantages,
-                                                        clip_epsilon*alpha,
-                                                        permute_batches,
-                                                        )
-            print(f"Epoch {epoch+1}: avg. loss = {np.mean(minibatch_losses)}")
-
-        print('-------------')
-
-    print(f"Evaluating at experience {experience}")
-    key, key_eval = jax.random.split(key)
-    evals[experience] = evaluate(env, key_eval, model_params, model, n_actions, n_eval_agents, eval_discount)
-    print("Returns:", evals[experience])
-    print('-------------')
-
-    return evals
 

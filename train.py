@@ -4,8 +4,11 @@ import optax
 import jax.numpy as jnp
 import numpy as np
 from flax.training.checkpoints import save_checkpoint
+import numpy as np
 from model import NN
-from learning import learn_policy
+from learning import sample_batch, batch_epoch
+from test import evaluate
+
 
 
 env_name = "CartPole-v1"
@@ -42,7 +45,6 @@ eval_iter = 40
 checkpoint_iter = 40
 checkpoint_dir = "./checkpoints"
 
-
 assert minibatch_size <= n_agents*horizon
 
 env, env_params = gymnax.make(env_name)
@@ -78,28 +80,71 @@ if clip_grad:
 else:
     optimizer = optax.adam(lr, eps=1e-5)
 
-evals = learn_policy(env,
-                     key,
-                     model_params, 
-                     model,
-                     optimizer,
-                     n_actions,
-                     n_outer_iters,
-                     horizon,
-                     n_epochs,
-                     n_agents,
-                     minibatch_size,
-                     val_loss_coeff,
-                     entropy_coeff,
-                     anneal,
-                     normalize_advantages,
-                     permute_batches,
-                     clip_epsilon,
-                     discount,
-                     gae_lambda,
-                     eval_discount,
-                     n_eval_agents,
-                     eval_iter)
+
+vecEnv_reset = jax.vmap(env.reset, in_axes=(0,))
+vecEnv_step = jax.vmap(env.step, in_axes=(0, 0, 0))
+
+key, *agents_subkeyReset = jax.random.split(key, n_agents+1)
+agents_subkeyReset = jnp.asarray(agents_subkeyReset)
+agents_stateFeature, agents_state = vecEnv_reset(agents_subkeyReset)  # (n_agents, n_features), (n_agents, .)
+optimizer_state = optimizer.init(model_params)
+
+evals = dict()
+for outer_iter in range(n_outer_iters):
+    experience = outer_iter * n_agents * horizon
+    
+    if outer_iter % eval_iter == 0:
+        print(f"Evaluating at experience {experience}")
+        key, key_eval = jax.random.split(key)
+        evals[experience] = evaluate(env, key_eval, model_params, model, n_actions, n_eval_agents, eval_discount)
+        print("Returns:", evals[experience])
+        print('-------------')
+
+    print(f"Step {outer_iter+1}:")
+    agents_stateFeature, agents_state, batch, key = sample_batch(agents_stateFeature,
+                                                                    agents_state,
+                                                                    vecEnv_step,
+                                                                    key,
+                                                                    model_params, 
+                                                                    model,
+                                                                    n_actions,
+                                                                    horizon,
+                                                                    n_agents,
+                                                                    discount,
+                                                                    gae_lambda)  
+    # (agents_stateFeature, agents_state) returned were the last ones seen in this step, and will initialize the next step
+    assert agents_stateFeature.shape[0] == n_agents
+
+    alpha = (1-outer_iter/n_outer_iters) if anneal else 1.
+
+    for epoch in range(n_epochs):
+        key, permutation_key = jax.random.split(key)
+        model_params, optimizer_state, minibatch_losses = batch_epoch(
+                                                    batch,
+                                                    permutation_key,
+                                                    model_params, 
+                                                    model,
+                                                    optimizer_state,
+                                                    optimizer,
+                                                    n_actions,
+                                                    horizon,
+                                                    n_agents,
+                                                    minibatch_size,
+                                                    val_loss_coeff,
+                                                    entropy_coeff,
+                                                    normalize_advantages,
+                                                    clip_epsilon*alpha,
+                                                    permute_batches,
+                                                    )
+        print(f"Epoch {epoch+1}: avg. loss = {np.mean(minibatch_losses)}")
+
+    print('-------------')
+
+print(f"Evaluating at experience {experience}")
+key, key_eval = jax.random.split(key)
+evals[experience] = evaluate(env, key_eval, model_params, model, n_actions, n_eval_agents, eval_discount)
+print("Returns:", evals[experience])
+print('-------------')
 
 print("Summary:")
 for experience in evals:
