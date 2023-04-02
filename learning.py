@@ -38,7 +38,7 @@ def loss_function(model_params: FrozenDict,
     policy_log_likelihoods = get_element(policy_log_probs, actions)  # (minibatch_size,)
     assert policy_log_likelihoods.shape == old_policy_log_likelihoods.shape
 
-    likelihood_ratios = jnp.exp(policy_log_likelihoods-old_policy_log_likelihoods)
+    likelihood_ratios = jnp.exp(policy_log_likelihoods - old_policy_log_likelihoods)
     clip_likelihood_ratios = jnp.clip(likelihood_ratios, 
                                          a_min=1-clip_epsilon, a_max=1+clip_epsilon)
     
@@ -52,9 +52,8 @@ def loss_function(model_params: FrozenDict,
     val_loss = 0.5 * jnp.mean((values-bootstrap_returns)**2)    
     entropy_bonus = jnp.mean(-jnp.exp(policy_log_probs)*policy_log_probs) * n_actions
 
-
     loss = ppo_loss + val_loss_coeff*val_loss - entropy_coeff*entropy_bonus
-    return loss
+    return loss, [ppo_loss, val_loss, entropy_bonus]
 
 
 @jax.jit
@@ -102,15 +101,18 @@ def batch_epoch(batch: dict[str, jnp.array],
     reshaped_batch = jax.tree_map(reshape, batch)  # each: (n_iters, ...)
     assert reshaped_batch["states"].shape[0] == n_iters
 
-    val_and_grad_function = jax.value_and_grad(loss_function, argnums=0)
+    val_and_grad_function = jax.value_and_grad(loss_function, argnums=0, has_aux=True)
 
     minibatch_losses = []
+    ppo_losses = []
+    val_losses = []
+    ent_bonuses = []
     for minibatch_idx in range(n_iters):
         minibatch = jax.tree_map(lambda x: x[minibatch_idx],
                                  reshaped_batch)
         assert minibatch["states"].shape[0] == minibatch_size
 
-        minibatch_loss, gradient = val_and_grad_function(model_params,
+        (minibatch_loss, loss_parts), gradient = val_and_grad_function(model_params,
                                                          minibatch,
                                                          model,
                                                          n_actions,
@@ -126,8 +128,13 @@ def batch_epoch(batch: dict[str, jnp.array],
         model_params = optax.apply_updates(model_params, param_updates)
 
         minibatch_losses.append(minibatch_loss)
+        ppo_loss, val_loss, entropy_bonus = loss_parts
+        ppo_losses.append(ppo_loss)
+        val_losses.append(val_loss)
+        ent_bonuses.append(entropy_bonus)
 
-    return model_params, optimizer_state, minibatch_losses
+    return model_params, optimizer_state, minibatch_losses, ppo_losses, val_losses, ent_bonuses
+    # return model_params, optimizer_state, minibatch_losses
 
 
 @partial(jax.jit, static_argnums=(1,))

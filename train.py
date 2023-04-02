@@ -119,7 +119,8 @@ for outer_iter in range(n_outer_iters):
 
     for epoch in range(n_epochs):
         key, permutation_key = jax.random.split(key)
-        model_params, optimizer_state, minibatch_losses = batch_epoch(
+
+        model_params, optimizer_state, minibatch_losses, ppo_losses, val_losses, ent_bonuses = batch_epoch(
                                                     batch,
                                                     permutation_key,
                                                     model_params, 
@@ -136,7 +137,9 @@ for outer_iter in range(n_outer_iters):
                                                     clip_epsilon*alpha,
                                                     permute_batches,
                                                     )
-        print(f"Epoch {epoch+1}: avg. loss = {np.mean(minibatch_losses)}")
+        
+        print(f"Epoch {epoch+1}: Loss = {np.mean(minibatch_losses):.2f}")
+        # print(f"ppo = {np.mean(ppo_losses):.2f}, val = {np.mean(val_losses):.2f}, ent = {np.mean(ent_bonuses):.2f}")
 
     print('-------------')
 
