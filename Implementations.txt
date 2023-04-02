@@ -1,8 +1,9 @@
 ICLR Blog post:
 https://iclr-blog-track.github.io/2022/03/25/ppo-implementation-details/
+https://github.com/vwxyzjn/ppo-implementation-details
 
 OpenAI:
-https://github.com/openai/baselines/tree/tf2/baselines/ppo2
+https://github.com/openai/baselines/tree/tf2/baselines/ppo2 (official implementation)
 https://github.com/openai/spinningup/tree/master/spinup/algos/pytorch/ppo
 
 Flax:

@@ -51,8 +51,8 @@ def loss_function(model_params: FrozenDict,
     policy_gradient_losses = likelihood_ratios * advantages  # (minibatch_size,)
     clip_losses = clip_likelihood_ratios * advantages
 
-    ppo_loss = -1.*jnp.mean(jnp.minimum(policy_gradient_losses, clip_losses))
-    val_loss = jnp.mean((values-bootstrap_returns)**2)    
+    ppo_loss = -1. * jnp.mean(jnp.minimum(policy_gradient_losses, clip_losses))
+    val_loss = 0.5 * jnp.mean((values-bootstrap_returns)**2)    
     entropy_bonus = jnp.mean(-jnp.exp(policy_log_probs)*policy_log_probs) * n_actions
 
     loss = ppo_loss + val_loss_coeff*val_loss - entropy_coeff*entropy_bonus
@@ -63,7 +63,7 @@ def loss_function(model_params: FrozenDict,
 def permute(batch, key):
     """ batch: each jnp.array: (horizon, n_agents, ...) """
 
-    _, key0, key1 = jax.random.split(key, 3)
+    key0, key1 = jax.random.split(key)
 
     batch = jax.tree_map(lambda x: jax.random.permutation(key0, x, axis=0),
                          batch)
@@ -91,11 +91,9 @@ def batch_epoch(batch: dict[str, jnp.array],
                 ):
     """ batch: each jnp.array: (horizon, n_agents, ...) """
 
-    assert batch["states"].shape[:2] == (horizon, n_agents)
-
     if permute_batch:
         batch = permute(batch, permutation_key)
-        assert batch["states"].shape[:2] == (horizon, n_agents)
+    assert batch["states"].shape[:2] == (horizon, n_agents)
 
     n_iters = horizon*n_agents // minibatch_size  # number of minibatches
     assert n_iters*minibatch_size == horizon*n_agents
@@ -103,7 +101,7 @@ def batch_epoch(batch: dict[str, jnp.array],
     def reshape(x):
         new_shape = (n_iters, minibatch_size) + x.shape[2:]
         return jnp.reshape(x, new_shape)
-    reshaped_batch = jax.tree_map(reshape, batch)
+    reshaped_batch = jax.tree_map(reshape, batch)  # each: (n_iters, ...)
     assert reshaped_batch["states"].shape[0] == n_iters
 
     val_and_grad_function = jax.value_and_grad(loss_function, argnums=0)
@@ -204,17 +202,14 @@ def sample_batch(agents_stateFeature: jnp.array,
     agents_nextTerminal_list = []  # (horizon, n_agents)
 
     for _ in range(horizon):
-        key, *agents_subkeyPolicy = jax.random.split(key, n_agents+1)
-        key, *agents_subkeyMDP = jax.random.split(key, n_agents+1)
-        agents_subkeyPolicy = jnp.asarray(agents_subkeyPolicy)  # (n_agents, ...)
-        agents_subkeyMDP = jnp.asarray(agents_subkeyMDP)  # (n_agents, ...)
-
         # (n_agents, n_actions), (n_agents, 1)
         agents_logProbs, agents_value = model.apply(model_params, agents_stateFeature)
         agents_probs = jnp.exp(agents_logProbs)
         agents_value = jnp.squeeze(agents_value, axis=-1)  # (n_agents,)
         assert agents_probs.shape == (n_agents, n_actions)
 
+        key, *agents_subkeyPolicy = jax.random.split(key, n_agents+1)
+        agents_subkeyPolicy = jnp.asarray(agents_subkeyPolicy)  # (n_agents, ...)
         # (n_agents,.), int, (n_agents,n_actions), (n_agents,n_actions) --> (n_agents,), (n_agents,)
         agents_action, agents_logLikelihood = sample_action_and_logLikelihood(
                                                                 agents_subkeyPolicy, 
@@ -230,6 +225,8 @@ def sample_batch(agents_stateFeature: jnp.array,
         agents_logLikelihood_list.append(agents_logLikelihood)
 
         ################### MDP TRANSITION ###################        
+        key, *agents_subkeyMDP = jax.random.split(key, n_agents+1)
+        agents_subkeyMDP = jnp.asarray(agents_subkeyMDP)  # (n_agents, ...)
         agents_stateFeature, agents_state, agents_reward, agents_nextTerminal, _ = vecEnv_step(
                                                                 agents_subkeyMDP, 
                                                                 agents_state, 

@@ -8,16 +8,15 @@ from model import NN
 from learning import learn_policy
 
 
-# env_name = "CartPole-v1"
+env_name = "CartPole-v1"
 # env_name = "SpaceInvaders-MinAtar"
-env_name = "MountainCar-v0"
+# env_name = "MountainCar-v0"
 
 SEED = 0
-total_experience = 500000
+total_experience = 250000
 
-lr_begin = 5e-3
-# lr_end = 0
-lr_end = 5e-4
+lr_begin = 2.5e-4
+lr_end = 0
 
 n_agents = 16
 horizon = 32
@@ -30,10 +29,11 @@ anneal = True
 
 permute_batches = True
 clip_epsilon = 0.2
-# entropy_coeff = 0.01
-entropy_coeff = 0.003
-
+entropy_coeff = 0.01
+# entropy_coeff = 0.003
 val_loss_coeff = 0.5
+clip_grad = 0.5
+
 discount = 0.99
 gae_lambda = 0.95
 n_eval_agents = 164
@@ -65,12 +65,18 @@ print("Action space:", n_actions)
 print("Minibatches per epoch:", n_iters_per_epoch)
 print("Outer steps:", n_outer_iters, '\n')
 
-
 if anneal:
     lr = optax.linear_schedule(init_value=lr_begin, 
                                end_value=lr_end, 
                                transition_steps=n_outer_iters*n_inner_iters)
-optimizer = optax.adam(lr)
+else:
+    lr = lr_begin
+
+if clip_grad:
+    optimizer = optax.chain(optax.clip_by_global_norm(max_norm=clip_grad), 
+                            optax.adam(lr, eps=1e-5))
+else:
+    optimizer = optax.adam(lr, eps=1e-5)
 
 evals = learn_policy(env,
                      key,
