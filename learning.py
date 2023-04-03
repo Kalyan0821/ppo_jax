@@ -5,6 +5,7 @@ from functools import partial
 from flax.core.frozen_dict import FrozenDict
 from model import NN
 from typing import Callable
+from flax.metrics.tensorboard import SummaryWriter
 
 
 @partial(jax.jit, static_argnums=(2, 3, 4, 5, 6, 7))
@@ -53,7 +54,7 @@ def loss_function(model_params: FrozenDict,
     clip_losses = clip_likelihood_ratios * advantages
 
     ppo_loss = -1. * jnp.mean(jnp.minimum(policy_gradient_losses, clip_losses))
-    val_loss = 0.5 * jnp.mean((values-bootstrap_returns)**2)    
+    val_loss = jnp.mean((values-bootstrap_returns)**2)    
     entropy_bonus = jnp.mean(-jnp.exp(policy_log_probs)*policy_log_probs) * n_actions
 
     loss = ppo_loss + val_loss_coeff*val_loss - entropy_coeff*entropy_bonus
@@ -64,7 +65,7 @@ def loss_function(model_params: FrozenDict,
 def permute(batch, key):
     """ batch: each jnp.array: (horizon, n_agents, ...) """
 
-    key0, key1 = jax.random.split(key)
+    _, key0, key1 = jax.random.split(key, 3)
 
     batch = jax.tree_map(lambda x: jax.random.permutation(key0, x, axis=0),
                          batch)

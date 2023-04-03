@@ -8,16 +8,14 @@ from learning import sample_batch, batch_epoch
 from test import evaluate
 
 
-env_name = "CartPole-v1"
+# env_name = "CartPole-v1"
 # env_name = "SpaceInvaders-MinAtar"
-# env_name = "MountainCar-v0"
+env_name = "MountainCar-v0"
 
 SEED = 0
-total_experience = 250000
-
-lr_begin = 2.5e-4
-lr_end = 0
-
+total_experience = 500000
+lr_begin = 5e-3
+lr_end = 5e-4
 n_agents = 16
 horizon = 32
 n_epochs = 64
@@ -26,16 +24,14 @@ minibatch_size = 128
 hidden_layer_sizes = (64, 64)
 normalize_advantages = True
 anneal = True
-
 permute_batches = True
 clip_epsilon = 0.2
-entropy_coeff = 0.01
+entropy_coeff = 0.003
 val_loss_coeff = 0.5
-clip_grad = 0.5
-
+clip_grad = None
 discount = 0.99
 gae_lambda = 0.95
-n_eval_agents = 32
+n_eval_agents = 164
 eval_discount = 1.0
 eval_iter = 40
 checkpoint_iter = 40
@@ -74,7 +70,8 @@ if clip_grad:
     optimizer = optax.chain(optax.clip_by_global_norm(max_norm=clip_grad), 
                             optax.adam(lr, eps=1e-5))
 else:
-    optimizer = optax.adam(lr, eps=1e-5)
+    # optimizer = optax.adam(lr, eps=1e-5)
+    optimizer = optax.adam(lr)
 
 
 vecEnv_reset = jax.vmap(env.reset, in_axes=(0,))
@@ -136,10 +133,6 @@ for outer_iter in range(n_outer_iters):
         
         print(f"Epoch {epoch+1}: Loss = {jnp.mean(minibatch_losses):.2f}")
         print(f"ppo = {jnp.mean(ppo_losses):.5f}, val = {jnp.mean(val_losses):.2f}, ent = {jnp.mean(ent_bonuses):.2f}, % clip_trigger = {100*jnp.mean(clip_trigger_fracs):.2f}, approx_kl = {jnp.mean(approx_kls):.5f}")
-
-        # print(f"Epoch {epoch+1}: Loss = {jnp.mean(minibatch_losses)}")
-        # print(f"ppo = {jnp.mean(ppo_losses)}, val = {jnp.mean(val_losses)}, ent = {jnp.mean(ent_bonuses)}, % clip_trigger = {100*jnp.mean(clip_trigger_fracs)}, approx_kl = {jnp.mean(approx_kls)}")
-
 
     print('-------------')
 
