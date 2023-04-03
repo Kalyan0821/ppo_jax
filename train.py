@@ -6,11 +6,11 @@ from flax.training.checkpoints import save_checkpoint
 from model import NN
 from learning import sample_batch, batch_epoch
 from test import evaluate
+from torch.utils.tensorboard import SummaryWriter
 
-
-# env_name = "CartPole-v1"
+env_name = "CartPole-v1"
 # env_name = "SpaceInvaders-MinAtar"
-env_name = "MountainCar-v0"
+# env_name = "MountainCar-v0"
 
 SEED = 0
 total_experience = 500000
@@ -18,7 +18,7 @@ lr_begin = 5e-3
 lr_end = 5e-4
 n_agents = 16
 horizon = 32
-n_epochs = 64
+n_epochs = 16
 minibatch_size = 128
 # minibatch_size = n_agents*horizon  # for 1 minibatch per epoch
 hidden_layer_sizes = (64, 64)
@@ -73,6 +73,7 @@ else:
     # optimizer = optax.adam(lr, eps=1e-5)
     optimizer = optax.adam(lr)
 
+writer = SummaryWriter(log_dir="./logs")
 
 vecEnv_reset = jax.vmap(env.reset, in_axes=(0,))
 vecEnv_step = jax.vmap(env.step, in_axes=(0, 0, 0))
@@ -132,15 +133,15 @@ for outer_iter in range(n_outer_iters):
                                                     permute_batches)
         
         print(f"Epoch {epoch+1}: Loss = {jnp.mean(minibatch_losses):.2f}")
-        print(f"ppo = {jnp.mean(ppo_losses):.5f}, val = {jnp.mean(val_losses):.2f}, ent = {jnp.mean(ent_bonuses):.2f}, % clip_trigger = {100*jnp.mean(clip_trigger_fracs):.2f}, approx_kl = {jnp.mean(approx_kls):.5f}")
+        print(f"ppo = {jnp.mean(ppo_losses):.5f}, val = {jnp.mean(val_losses):.2f}, ent = {jnp.mean(ent_bonuses):.2f}, %clip_trigger = {100*jnp.mean(clip_trigger_fracs):.2f}, approx_kl = {jnp.mean(approx_kls):.5f}")
 
-    print('-------------')
+    print('\n\n===============================================\n\n')
 
 print(f"Evaluating at experience {experience}")
 key, key_eval = jax.random.split(key)
 evals[experience] = evaluate(env, key_eval, model_params, model, n_actions, n_eval_agents, eval_discount)
 print("Returns:", evals[experience])
-print('-------------')
+print('\n\n===============================================\n\n')
 
 print("Summary:")
 for experience in evals:

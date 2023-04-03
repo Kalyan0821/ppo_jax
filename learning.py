@@ -5,10 +5,9 @@ from functools import partial
 from flax.core.frozen_dict import FrozenDict
 from model import NN
 from typing import Callable
-from flax.metrics.tensorboard import SummaryWriter
 
 
-@partial(jax.jit, static_argnums=(2, 3, 4, 5, 6, 7))
+# @partial(jax.jit, static_argnums=(2, 3, 4, 5, 6, 7))
 def loss_function(model_params: FrozenDict,
                   minibatch: dict[str, jnp.array],
                   model: NN,
@@ -54,11 +53,15 @@ def loss_function(model_params: FrozenDict,
     clip_losses = clip_likelihood_ratios * advantages
 
     ppo_loss = -1. * jnp.mean(jnp.minimum(policy_gradient_losses, clip_losses))
-    val_loss = jnp.mean((values-bootstrap_returns)**2)    
+    val_loss = 0.5 * jnp.mean((values-bootstrap_returns)**2)    
     entropy_bonus = jnp.mean(-jnp.exp(policy_log_probs)*policy_log_probs) * n_actions
 
     loss = ppo_loss + val_loss_coeff*val_loss - entropy_coeff*entropy_bonus
     return loss, (ppo_loss, val_loss, entropy_bonus, clip_trigger_frac, approx_kl)
+
+
+val_and_grad_function = jax.jit(jax.value_and_grad(loss_function, argnums=0, has_aux=True),
+                                static_argnums=(2, 3, 4, 5, 6, 7))
 
 
 @jax.jit
@@ -89,8 +92,7 @@ def batch_epoch(batch: dict[str, jnp.array],
                 entropy_coeff: float,
                 normalize_advantages: bool,
                 clip_epsilon: float,
-                permute_batch: bool,
-                ):
+                permute_batch: bool):
     """ batch: each jnp.array: (horizon, n_agents, ...) """
 
     if permute_batch:
@@ -105,8 +107,6 @@ def batch_epoch(batch: dict[str, jnp.array],
         return jnp.reshape(x, new_shape)
     reshaped_batch = jax.tree_map(reshape, batch)  # each: (n_iters, ...)
     assert reshaped_batch["states"].shape[0] == n_iters
-
-    val_and_grad_function = jax.value_and_grad(loss_function, argnums=0, has_aux=True)
 
     minibatch_losses = []
     ppo_losses = []
