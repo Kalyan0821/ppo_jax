@@ -3,41 +3,47 @@ import jax
 import optax
 import jax.numpy as jnp
 from flax.training.checkpoints import save_checkpoint
+from torch.utils.tensorboard import SummaryWriter
+from tqdm import tqdm
+import numpy as np
 from model import NN
 from learning import sample_batch, batch_epoch
 from test import evaluate
-from torch.utils.tensorboard import SummaryWriter
 
-env_name = "CartPole-v1"
-# env_name = "SpaceInvaders-MinAtar"
+
+# env_name = "CartPole-v1"
+env_name = "SpaceInvaders-MinAtar"
 # env_name = "MountainCar-v0"
 
 SEED = 0
-total_experience = 500000
-lr_begin = 5e-3
+total_experience = int(5e6)
+
+lr_begin = 5e-4
 lr_end = 5e-4
-n_agents = 16
-horizon = 32
-n_epochs = 16
-minibatch_size = 128
+n_agents = 64
+horizon = 128
+n_epochs = 4
+minibatch_size = 1024
 # minibatch_size = n_agents*horizon  # for 1 minibatch per epoch
-hidden_layer_sizes = (64, 64)
+hidden_layer_sizes = (256, 256)
 normalize_advantages = True
 anneal = True
 permute_batches = True
 clip_epsilon = 0.2
-entropy_coeff = 0.003
+entropy_coeff = 0.01
 val_loss_coeff = 0.5
-clip_grad = None
-discount = 0.99
+clip_grad = 0.5
+discount = 0.999
 gae_lambda = 0.95
 n_eval_agents = 164
 eval_discount = 1.0
 eval_iter = 40
 checkpoint_iter = 40
 checkpoint_dir = "./checkpoints"
+log_dir = "./logs"
 
 assert minibatch_size <= n_agents*horizon
+writer = SummaryWriter(log_dir=log_dir)
 
 env, env_params = gymnax.make(env_name)
 key = jax.random.PRNGKey(SEED)
@@ -73,8 +79,6 @@ else:
     # optimizer = optax.adam(lr, eps=1e-5)
     optimizer = optax.adam(lr)
 
-writer = SummaryWriter(log_dir="./logs")
-
 vecEnv_reset = jax.vmap(env.reset, in_axes=(0,))
 vecEnv_step = jax.vmap(env.step, in_axes=(0, 0, 0))
 
@@ -84,28 +88,31 @@ agents_stateFeature, agents_state = vecEnv_reset(agents_subkeyReset)  # (n_agent
 optimizer_state = optimizer.init(model_params)
 
 evals = dict()
-for outer_iter in range(n_outer_iters):
+for outer_iter in tqdm(range(n_outer_iters)):
     experience = outer_iter * n_agents * horizon
-    
-    if outer_iter % eval_iter == 0:
-        print(f"Evaluating at experience {experience}")
-        key, key_eval = jax.random.split(key)
-        evals[experience] = evaluate(env, key_eval, model_params, model, n_actions, n_eval_agents, eval_discount)
-        print("Returns:", evals[experience])
-        print('-------------')
+    steps = outer_iter
+    # print(f"Step {steps+1}:")
 
-    print(f"Step {outer_iter+1}:")
+    if outer_iter % eval_iter == 0:
+        key, key_eval = jax.random.split(key)
+        returns = evaluate(env, key_eval, model_params, model, n_actions, n_eval_agents, eval_discount)
+        avg_return, std_return = np.average(returns), np.nanstd(returns)
+        evals[experience, steps] = (avg_return, std_return)
+        writer.add_scalars("Returns", {"avg": avg_return,
+                                       "avg+std": avg_return + std_return,
+                                       "avg-std": avg_return - std_return}, experience)
+
     agents_stateFeature, agents_state, batch, key = sample_batch(agents_stateFeature,
-                                                                    agents_state,
-                                                                    vecEnv_step,
-                                                                    key,
-                                                                    model_params, 
-                                                                    model,
-                                                                    n_actions,
-                                                                    horizon,
-                                                                    n_agents,
-                                                                    discount,
-                                                                    gae_lambda)  
+                                                                 agents_state,
+                                                                 vecEnv_step,
+                                                                 key,
+                                                                 model_params, 
+                                                                 model,
+                                                                 n_actions,
+                                                                 horizon,
+                                                                 n_agents,
+                                                                 discount,
+                                                                 gae_lambda)
     # (agents_stateFeature, agents_state) returned were the last ones seen in this step, and will initialize the next step
     assert agents_stateFeature.shape[0] == n_agents
 
@@ -132,24 +139,31 @@ for outer_iter in range(n_outer_iters):
                                                     clip_epsilon*alpha,
                                                     permute_batches)
         
-        print(f"Epoch {epoch+1}: Loss = {jnp.mean(minibatch_losses):.2f}")
-        print(f"ppo = {jnp.mean(ppo_losses):.5f}, val = {jnp.mean(val_losses):.2f}, ent = {jnp.mean(ent_bonuses):.2f}, %clip_trigger = {100*jnp.mean(clip_trigger_fracs):.2f}, approx_kl = {jnp.mean(approx_kls):.5f}")
+        # print(f"Epoch {epoch+1}: Loss = {np.mean(minibatch_losses):.2f}")
+        # print(f"ppo = {np.mean(ppo_losses):.5f}, val = {np.mean(val_losses):.2f}, ent = {np.mean(ent_bonuses):.2f}, %clip_trigger = {100*np.mean(clip_trigger_fracs):.2f}, approx_kl = {np.mean(approx_kls):.5f}")
+        
+    new_experience = experience + (n_agents*horizon)
+    writer.add_scalar("Losses/total", np.mean(minibatch_losses), new_experience)
+    writer.add_scalar("Losses/ppo", np.mean(ppo_losses), new_experience)
+    writer.add_scalar("Losses/val", np.mean(val_losses), new_experience)
+    writer.add_scalar("Losses/ent", np.mean(ent_bonuses), new_experience)
+    writer.add_scalar("Debug/%clip_trig", 100*np.mean(clip_trigger_fracs), new_experience)
+    writer.add_scalar("Debug/approx_kl", np.mean(approx_kls), new_experience)
 
-    print('\n\n===============================================\n\n')
 
-print(f"Evaluating at experience {experience}")
 key, key_eval = jax.random.split(key)
-evals[experience] = evaluate(env, key_eval, model_params, model, n_actions, n_eval_agents, eval_discount)
-print("Returns:", evals[experience])
-print('\n\n===============================================\n\n')
+returns = evaluate(env, key_eval, model_params, model, n_actions, n_eval_agents, eval_discount)
+avg_return, std_return = np.average(returns), np.nanstd(returns)
+evals[new_experience, steps+1] = (avg_return, std_return)
+writer.add_scalars("Returns", {"avg": avg_return,
+                                "avg+std": avg_return + std_return,
+                                "avg-std": avg_return - std_return}, new_experience)
 
-print("Summary:")
-for experience in evals:
-    avg_return = jnp.mean(evals[experience])
-    std_return = jnp.std(evals[experience])
-    print(f"Experience: {experience}. Avg. return = {avg_return}, std={std_return}")
-
-
+print("\nReturns avg ± std:")
+for exp, steps in evals:
+    avg_return, std_return = evals[exp, steps]
+    print(f"(Exp {exp}, steps {steps}) --> {avg_return:.2f} ± {std_return:.2f}")
+print()
 
 # if (outer_iter+1) % checkpoint_iter == 0:
 #     experience = (outer_iter+1) * n_agents * horizon

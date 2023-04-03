@@ -142,8 +142,8 @@ def batch_epoch(batch: dict[str, jnp.array],
         clip_trigger_fracs.append(clip_trigger_frac)
         approx_kls.append(approx_kl)
 
-    return (model_params, optimizer_state, jnp.asarray(minibatch_losses), 
-            jnp.asarray(ppo_losses), jnp.asarray(val_losses), jnp.asarray(ent_bonuses), jnp.asarray(clip_trigger_fracs), jnp.asarray(approx_kls))
+    return (model_params, optimizer_state, minibatch_losses, 
+            ppo_losses, val_losses, ent_bonuses, clip_trigger_fracs, approx_kls)
 
 
 @partial(jax.jit, static_argnums=(1,))
