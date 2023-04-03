@@ -1,6 +1,5 @@
 import flax.linen as nn
 import jax.numpy as jnp
-import numpy as np
 
 class NN(nn.Module):
     """ Shared-param model for policy and value function """
@@ -25,14 +24,14 @@ class NN(nn.Module):
         # Shared layers
         for l, size in enumerate(self.hidden_layer_sizes):
             x = nn.Dense(features=size, 
-                         kernel_init=nn.initializers.orthogonal(scale=np.sqrt(2)),
+                         kernel_init=nn.initializers.orthogonal(scale=jnp.sqrt(2)),
                          name=f"dense_{l+1}")(x)
 
             x = nn.relu(x)
 
         # Output layers
         policy_logits = nn.Dense(features=self.n_actions, 
-                                 kernel_init=nn.initializers.orthogonal(scale=0.01),
+                                 kernel_init=nn.initializers.orthogonal(scale=jnp.array(0.01)),
                                  name="logits")(x)
         policy_log_probs = nn.log_softmax(policy_logits)
         

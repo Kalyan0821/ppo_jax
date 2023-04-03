@@ -2,13 +2,10 @@ import gymnax
 import jax
 import optax
 import jax.numpy as jnp
-import numpy as np
 from flax.training.checkpoints import save_checkpoint
-import numpy as np
 from model import NN
 from learning import sample_batch, batch_epoch
 from test import evaluate
-
 
 
 env_name = "CartPole-v1"
@@ -16,14 +13,14 @@ env_name = "CartPole-v1"
 # env_name = "MountainCar-v0"
 
 SEED = 0
-total_experience = 250000
+total_experience = 200000
 
 lr_begin = 2.5e-4
 lr_end = 0
 
 n_agents = 16
 horizon = 32
-n_epochs = 64
+n_epochs = 16
 minibatch_size = 128
 # minibatch_size = n_agents*horizon  # for 1 minibatch per epoch
 hidden_layer_sizes = (64, 64)
@@ -39,7 +36,7 @@ clip_grad = 0.5
 
 discount = 0.99
 gae_lambda = 0.95
-n_eval_agents = 164
+n_eval_agents = 32
 eval_discount = 1.0
 eval_iter = 40
 checkpoint_iter = 40
@@ -119,25 +116,31 @@ for outer_iter in range(n_outer_iters):
 
     for epoch in range(n_epochs):
         key, permutation_key = jax.random.split(key)
-        result = batch_epoch(batch,
-                             permutation_key,
-                             model_params, 
-                             model,
-                             optimizer_state,
-                             optimizer,
-                             n_actions,
-                             horizon,
-                             n_agents,
-                             minibatch_size,
-                             val_loss_coeff,
-                             entropy_coeff,
-                             normalize_advantages,
-                             clip_epsilon*alpha,
-                             permute_batches)
-        model_params, optimizer_state, minibatch_losses, ppo_losses, val_losses, ent_bonuses, clip_trigger_fracs, approx_kls = result
+
+        (model_params, optimizer_state, minibatch_losses, 
+         ppo_losses, val_losses, ent_bonuses, clip_trigger_fracs, approx_kls) = batch_epoch(
+                                                    batch,
+                                                    permutation_key,
+                                                    model_params, 
+                                                    model,
+                                                    optimizer_state,
+                                                    optimizer,
+                                                    n_actions,
+                                                    horizon,
+                                                    n_agents,
+                                                    minibatch_size,
+                                                    val_loss_coeff,
+                                                    entropy_coeff,
+                                                    normalize_advantages,
+                                                    clip_epsilon*alpha,
+                                                    permute_batches)
         
-        print(f"Epoch {epoch+1}: Loss = {np.mean(minibatch_losses):.2f}")
-        print(f"ppo = {np.mean(ppo_losses):.5f}, val = {np.mean(val_losses):.2f}, ent = {np.mean(ent_bonuses):.2f}, %clip_trigger = {100*np.mean(clip_trigger_fracs):.2f}, approx_kl = {np.mean(approx_kls):.2f}")
+        print(f"Epoch {epoch+1}: Loss = {jnp.mean(minibatch_losses):.2f}")
+        print(f"ppo = {jnp.mean(ppo_losses):.5f}, val = {jnp.mean(val_losses):.2f}, ent = {jnp.mean(ent_bonuses):.2f}, % clip_trigger = {100*jnp.mean(clip_trigger_fracs):.2f}, approx_kl = {jnp.mean(approx_kls):.2f}")
+
+        # print(f"Epoch {epoch+1}: Loss = {jnp.mean(minibatch_losses)}")
+        # print(f"ppo = {jnp.mean(ppo_losses)}, val = {jnp.mean(val_losses)}, ent = {jnp.mean(ent_bonuses)}, % clip_trigger = {100*jnp.mean(clip_trigger_fracs)}, approx_kl = {jnp.mean(approx_kls)}")
+
 
     print('-------------')
 
@@ -149,8 +152,8 @@ print('-------------')
 
 print("Summary:")
 for experience in evals:
-    avg_return = np.mean(evals[experience])
-    std_return = np.std(evals[experience])
+    avg_return = jnp.mean(evals[experience])
+    std_return = jnp.std(evals[experience])
     print(f"Experience: {experience}. Avg. return = {avg_return}, std={std_return}")
 
 

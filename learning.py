@@ -40,6 +40,8 @@ def loss_function(model_params: FrozenDict,
 
     log_likelihood_ratios = policy_log_likelihoods - old_policy_log_likelihoods
     likelihood_ratios = jnp.exp(log_likelihood_ratios)
+    log_likelihood_ratios = policy_log_likelihoods - old_policy_log_likelihoods
+    likelihood_ratios = jnp.exp(log_likelihood_ratios)
     clip_likelihood_ratios = jnp.clip(likelihood_ratios, 
                                          a_min=1-clip_epsilon, a_max=1+clip_epsilon)
     clip_trigger_frac = jnp.mean(jnp.abs(likelihood_ratios-1) > clip_epsilon)
@@ -57,6 +59,7 @@ def loss_function(model_params: FrozenDict,
     entropy_bonus = jnp.mean(-jnp.exp(policy_log_probs)*policy_log_probs) * n_actions
 
     loss = ppo_loss + val_loss_coeff*val_loss - entropy_coeff*entropy_bonus
+    return loss, (ppo_loss, val_loss, entropy_bonus, clip_trigger_frac, approx_kl)
     return loss, (ppo_loss, val_loss, entropy_bonus, clip_trigger_frac, approx_kl)
 
 
@@ -141,8 +144,8 @@ def batch_epoch(batch: dict[str, jnp.array],
         clip_trigger_fracs.append(clip_trigger_frac)
         approx_kls.append(approx_kl)
 
-    return (model_params, optimizer_state, minibatch_losses, 
-            ppo_losses, val_losses, ent_bonuses, clip_trigger_fracs, approx_kls)
+    return (model_params, optimizer_state, jnp.asarray(minibatch_losses), 
+            jnp.asarray(ppo_losses), jnp.asarray(val_losses), jnp.asarray(ent_bonuses), jnp.asarray(clip_trigger_fracs), jnp.asarray(approx_kls))
 
 
 @partial(jax.jit, static_argnums=(1,))
