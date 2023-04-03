@@ -30,7 +30,6 @@ anneal = True
 permute_batches = True
 clip_epsilon = 0.2
 entropy_coeff = 0.01
-# entropy_coeff = 0.
 val_loss_coeff = 0.5
 clip_grad = 0.5
 

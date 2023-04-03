@@ -40,8 +40,6 @@ def loss_function(model_params: FrozenDict,
 
     log_likelihood_ratios = policy_log_likelihoods - old_policy_log_likelihoods
     likelihood_ratios = jnp.exp(log_likelihood_ratios)
-    log_likelihood_ratios = policy_log_likelihoods - old_policy_log_likelihoods
-    likelihood_ratios = jnp.exp(log_likelihood_ratios)
     clip_likelihood_ratios = jnp.clip(likelihood_ratios, 
                                          a_min=1-clip_epsilon, a_max=1+clip_epsilon)
     clip_trigger_frac = jnp.mean(jnp.abs(likelihood_ratios-1) > clip_epsilon)

@@ -27,8 +27,8 @@ class NN(nn.Module):
                          kernel_init=nn.initializers.orthogonal(scale=jnp.sqrt(2)),
                          name=f"dense_{l+1}")(x)
             
-            # x = nn.relu(x)
-            x = nn.tanh(x)
+            x = nn.relu(x)
+            # x = nn.tanh(x)
 
         # Output layers
         policy_logits = nn.Dense(features=self.n_actions, 
