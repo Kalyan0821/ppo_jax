@@ -38,10 +38,13 @@ def loss_function(model_params: FrozenDict,
     policy_log_likelihoods = get_element(policy_log_probs, actions)  # (minibatch_size,)
     assert policy_log_likelihoods.shape == old_policy_log_likelihoods.shape
 
-    likelihood_ratios = jnp.exp(policy_log_likelihoods - old_policy_log_likelihoods)
+    log_likelihood_ratios = policy_log_likelihoods - old_policy_log_likelihoods
+    likelihood_ratios = jnp.exp(log_likelihood_ratios)
     clip_likelihood_ratios = jnp.clip(likelihood_ratios, 
                                          a_min=1-clip_epsilon, a_max=1+clip_epsilon)
     clip_trigger_frac = jnp.mean(jnp.abs(likelihood_ratios-1) > clip_epsilon)
+    # Approximate avg. KL(old || new)
+    approx_kl = jnp.mean(-log_likelihood_ratios + likelihood_ratios-1)
     
     if normalize_advantages:
         advantages = (advantages-jnp.mean(advantages)) / (jnp.std(advantages)+1e-8)
@@ -54,7 +57,7 @@ def loss_function(model_params: FrozenDict,
     entropy_bonus = jnp.mean(-jnp.exp(policy_log_probs)*policy_log_probs) * n_actions
 
     loss = ppo_loss + val_loss_coeff*val_loss - entropy_coeff*entropy_bonus
-    return loss, (ppo_loss, val_loss, entropy_bonus, clip_trigger_frac)
+    return loss, (ppo_loss, val_loss, entropy_bonus, clip_trigger_frac, approx_kl)
 
 
 @jax.jit
@@ -109,6 +112,7 @@ def batch_epoch(batch: dict[str, jnp.array],
     val_losses = []
     ent_bonuses = []
     clip_trigger_fracs = []
+    approx_kls = []
     for minibatch_idx in range(n_iters):
         minibatch = jax.tree_map(lambda x: x[minibatch_idx],
                                  reshaped_batch)
@@ -130,14 +134,15 @@ def batch_epoch(batch: dict[str, jnp.array],
         model_params = optax.apply_updates(model_params, param_updates)
 
         minibatch_losses.append(minibatch_loss)
-        ppo_loss, val_loss, entropy_bonus, clip_trigger_frac = loss_info
+        ppo_loss, val_loss, entropy_bonus, clip_trigger_frac, approx_kl = loss_info
         ppo_losses.append(ppo_loss)
         val_losses.append(val_loss)
         ent_bonuses.append(entropy_bonus)
         clip_trigger_fracs.append(clip_trigger_frac)
+        approx_kls.append(approx_kl)
 
     return (model_params, optimizer_state, minibatch_losses, 
-            ppo_losses, val_losses, ent_bonuses, clip_trigger_fracs)
+            ppo_losses, val_losses, ent_bonuses, clip_trigger_fracs, approx_kls)
 
 
 @partial(jax.jit, static_argnums=(1,))

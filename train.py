@@ -119,28 +119,25 @@ for outer_iter in range(n_outer_iters):
 
     for epoch in range(n_epochs):
         key, permutation_key = jax.random.split(key)
-
-        (model_params, optimizer_state, minibatch_losses, 
-         ppo_losses, val_losses, ent_bonuses, clip_trigger_fracs) = batch_epoch(
-                                                    batch,
-                                                    permutation_key,
-                                                    model_params, 
-                                                    model,
-                                                    optimizer_state,
-                                                    optimizer,
-                                                    n_actions,
-                                                    horizon,
-                                                    n_agents,
-                                                    minibatch_size,
-                                                    val_loss_coeff,
-                                                    entropy_coeff,
-                                                    normalize_advantages,
-                                                    clip_epsilon*alpha,
-                                                    permute_batches,
-                                                    )
+        result = batch_epoch(batch,
+                             permutation_key,
+                             model_params, 
+                             model,
+                             optimizer_state,
+                             optimizer,
+                             n_actions,
+                             horizon,
+                             n_agents,
+                             minibatch_size,
+                             val_loss_coeff,
+                             entropy_coeff,
+                             normalize_advantages,
+                             clip_epsilon*alpha,
+                             permute_batches)
+        model_params, optimizer_state, minibatch_losses, ppo_losses, val_losses, ent_bonuses, clip_trigger_fracs, approx_kls = result
         
         print(f"Epoch {epoch+1}: Loss = {np.mean(minibatch_losses):.2f}")
-        print(f"ppo = {np.mean(ppo_losses):.5f}, val = {np.mean(val_losses):.2f}, ent = {np.mean(ent_bonuses):.2f}, % clip_trigger = {100*np.mean(clip_trigger_fracs):.2f}")
+        print(f"ppo = {np.mean(ppo_losses):.5f}, val = {np.mean(val_losses):.2f}, ent = {np.mean(ent_bonuses):.2f}, %clip_trigger = {100*np.mean(clip_trigger_fracs):.2f}, approx_kl = {np.mean(approx_kls):.2f}")
 
     print('-------------')
 
