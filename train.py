@@ -136,7 +136,7 @@ for outer_iter in range(n_outer_iters):
                                                     permute_batches)
         
         print(f"Epoch {epoch+1}: Loss = {jnp.mean(minibatch_losses):.2f}")
-        print(f"ppo = {jnp.mean(ppo_losses):.5f}, val = {jnp.mean(val_losses):.2f}, ent = {jnp.mean(ent_bonuses):.2f}, % clip_trigger = {100*jnp.mean(clip_trigger_fracs):.2f}, approx_kl = {jnp.mean(approx_kls):.2f}")
+        print(f"ppo = {jnp.mean(ppo_losses):.5f}, val = {jnp.mean(val_losses):.2f}, ent = {jnp.mean(ent_bonuses):.2f}, % clip_trigger = {100*jnp.mean(clip_trigger_fracs):.2f}, approx_kl = {jnp.mean(approx_kls):.5f}")
 
         # print(f"Epoch {epoch+1}: Loss = {jnp.mean(minibatch_losses)}")
         # print(f"ppo = {jnp.mean(ppo_losses)}, val = {jnp.mean(val_losses)}, ent = {jnp.mean(ent_bonuses)}, % clip_trigger = {100*jnp.mean(clip_trigger_fracs)}, approx_kl = {jnp.mean(approx_kls)}")

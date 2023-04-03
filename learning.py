@@ -45,7 +45,7 @@ def loss_function(model_params: FrozenDict,
     clip_likelihood_ratios = jnp.clip(likelihood_ratios, 
                                          a_min=1-clip_epsilon, a_max=1+clip_epsilon)
     clip_trigger_frac = jnp.mean(jnp.abs(likelihood_ratios-1) > clip_epsilon)
-    # Approximate avg. KL(old || new)
+    # Approximate avg. KL(old || new), from John Schulman blog
     approx_kl = jnp.mean(-log_likelihood_ratios + likelihood_ratios-1)
     
     if normalize_advantages:
@@ -59,7 +59,6 @@ def loss_function(model_params: FrozenDict,
     entropy_bonus = jnp.mean(-jnp.exp(policy_log_probs)*policy_log_probs) * n_actions
 
     loss = ppo_loss + val_loss_coeff*val_loss - entropy_coeff*entropy_bonus
-    return loss, (ppo_loss, val_loss, entropy_bonus, clip_trigger_frac, approx_kl)
     return loss, (ppo_loss, val_loss, entropy_bonus, clip_trigger_frac, approx_kl)
 
 
@@ -172,7 +171,6 @@ def batch_advantages_and_returns(values: jnp.array,
 
     advantages = []
     bootstrap_returns = []
-
     next_advantage = 0.
     for t in reversed(range(horizon)):  # horizon-1, ..., 2, 1, 0
         # if next_is_terminal[t]:
