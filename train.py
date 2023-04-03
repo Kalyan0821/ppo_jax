@@ -13,14 +13,14 @@ env_name = "CartPole-v1"
 # env_name = "MountainCar-v0"
 
 SEED = 0
-total_experience = 200000
+total_experience = 250000
 
 lr_begin = 2.5e-4
 lr_end = 0
 
 n_agents = 16
 horizon = 32
-n_epochs = 16
+n_epochs = 64
 minibatch_size = 128
 # minibatch_size = n_agents*horizon  # for 1 minibatch per epoch
 hidden_layer_sizes = (64, 64)
@@ -30,7 +30,7 @@ anneal = True
 permute_batches = True
 clip_epsilon = 0.2
 entropy_coeff = 0.01
-# entropy_coeff = 0.003
+# entropy_coeff = 0.
 val_loss_coeff = 0.5
 clip_grad = 0.5
 

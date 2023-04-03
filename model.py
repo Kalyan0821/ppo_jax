@@ -27,7 +27,8 @@ class NN(nn.Module):
                          kernel_init=nn.initializers.orthogonal(scale=jnp.sqrt(2)),
                          name=f"dense_{l+1}")(x)
             
-            x = nn.activation.tanh(x)
+            # x = nn.relu(x)
+            x = nn.tanh(x)
 
         # Output layers
         policy_logits = nn.Dense(features=self.n_actions, 
@@ -36,7 +37,7 @@ class NN(nn.Module):
         policy_log_probs = nn.log_softmax(policy_logits)
         
         value = nn.Dense(features=1, 
-                         kernel_init=nn.initializers.orthogonal(scale=1.),
+                         kernel_init=nn.initializers.orthogonal(scale=jnp.array(1.)),
                          name="value")(x)
 
         return policy_log_probs, value  # (n_actions,), (1,)
