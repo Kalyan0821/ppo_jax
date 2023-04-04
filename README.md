@@ -1,2 +1,3 @@
 ### PPO implemented in Jax.
-To train, run train.py.
+To train:
+python train.py --config config.json

@@ -3,47 +3,56 @@ import jax
 import optax
 import jax.numpy as jnp
 from flax.training.checkpoints import save_checkpoint
-from torch.utils.tensorboard import SummaryWriter
 from tqdm import tqdm
 import numpy as np
+import argparse
+import json
+import wandb
+import datetime
 from model import NN
 from learning import sample_batch, batch_epoch
 from test import evaluate
 
 
-# env_name = "CartPole-v1"
-env_name = "SpaceInvaders-MinAtar"
-# env_name = "MountainCar-v0"
+parser = argparse.ArgumentParser()
+parser.add_argument('--config', type=str, required=True, help='JSON file path')
+args = parser.parse_args()
 
-SEED = 0
-total_experience = int(5e6)
+with open(args.config, 'r') as f:
+    config = json.load(f)
 
-lr_begin = 5e-4
-lr_end = 5e-4
-n_agents = 64
-horizon = 128
-n_epochs = 4
-minibatch_size = 1024
+env_name = config["env_name"]
+SEED = config["SEED"]
+total_experience = int(config["total_experience"])
+lr_begin = config["lr_begin"]
+lr_end = config["lr_end"]
+n_agents = config["n_agents"]
+horizon = config["horizon"]
+n_epochs = config["n_epochs"]
+minibatch_size = config["minibatch_size"]
 # minibatch_size = n_agents*horizon  # for 1 minibatch per epoch
-hidden_layer_sizes = (256, 256)
-normalize_advantages = True
-anneal = True
-permute_batches = True
-clip_epsilon = 0.2
-entropy_coeff = 0.01
-val_loss_coeff = 0.5
-clip_grad = 0.5
-discount = 0.999
-gae_lambda = 0.95
-n_eval_agents = 164
-eval_discount = 1.0
-eval_iter = 40
-checkpoint_iter = 40
-checkpoint_dir = "./checkpoints"
-log_dir = "./logs"
+hidden_layer_sizes = tuple(config["hidden_layer_sizes"])
+normalize_advantages = config["normalize_advantages"]
+anneal = config["anneal"]
+clip_epsilon = config["clip_epsilon"]
+entropy_coeff = config["entropy_coeff"]
+val_loss_coeff = config["val_loss_coeff"]
+clip_grad = config["clip_grad"]
+permute_batches = config["permute_batches"]
+discount = config["discount"]
+gae_lambda = config["gae_lambda"]
+n_eval_agents = config["n_eval_agents"]
+eval_discount = config["eval_discount"]
+eval_iter = config["eval_iter"]
+checkpoint_iter = config["checkpoint_iter"]
+checkpoint_dir = config["checkpoint_dir"]
+log_dir = config["log_dir"]
+
 
 assert minibatch_size <= n_agents*horizon
-writer = SummaryWriter(log_dir=log_dir)
+wandb.init(project="ppo", 
+           config=config,
+           name=env_name+'-'+datetime.datetime.now().strftime("%d.%m-%H:%M"))
 
 env, env_params = gymnax.make(env_name)
 key = jax.random.PRNGKey(SEED)
@@ -98,10 +107,11 @@ for outer_iter in tqdm(range(n_outer_iters)):
         returns = evaluate(env, key_eval, model_params, model, n_actions, n_eval_agents, eval_discount)
         avg_return, std_return = np.average(returns), np.nanstd(returns)
         evals[experience, steps] = (avg_return, std_return)
-        writer.add_scalars("Returns", {"avg": avg_return,
-                                       "avg+std": avg_return + std_return,
-                                       "avg-std": avg_return - std_return}, experience)
 
+        wandb.log({"Returns/avg": avg_return,
+                   "Returns/avg+std": avg_return + std_return,
+                   "Returns/avg-std": avg_return - std_return}, experience)
+        
     agents_stateFeature, agents_state, batch, key = sample_batch(agents_stateFeature,
                                                                  agents_state,
                                                                  vecEnv_step,
@@ -143,27 +153,30 @@ for outer_iter in tqdm(range(n_outer_iters)):
         # print(f"ppo = {np.mean(ppo_losses):.5f}, val = {np.mean(val_losses):.2f}, ent = {np.mean(ent_bonuses):.2f}, %clip_trigger = {100*np.mean(clip_trigger_fracs):.2f}, approx_kl = {np.mean(approx_kls):.5f}")
         
     new_experience = experience + (n_agents*horizon)
-    writer.add_scalar("Losses/total", np.mean(minibatch_losses), new_experience)
-    writer.add_scalar("Losses/ppo", np.mean(ppo_losses), new_experience)
-    writer.add_scalar("Losses/val", np.mean(val_losses), new_experience)
-    writer.add_scalar("Losses/ent", np.mean(ent_bonuses), new_experience)
-    writer.add_scalar("Debug/%clip_trig", 100*np.mean(clip_trigger_fracs), new_experience)
-    writer.add_scalar("Debug/approx_kl", np.mean(approx_kls), new_experience)
+    wandb.log({"Losses/total": np.mean(minibatch_losses)}, new_experience)
+    wandb.log({"Losses/ppo": np.mean(ppo_losses)}, new_experience)
+    wandb.log({"Losses/val": np.mean(val_losses)}, new_experience)
+    wandb.log({"Losses/ent": np.mean(ent_bonuses)}, new_experience)
 
+    wandb.log({"Debug/%clip_trig": 100*np.mean(clip_trigger_fracs)}, new_experience)
+    wandb.log({"Debug/approx_kl": np.mean(approx_kls)}, new_experience)
+    wandb.log({"Debug/clip_epsilon": clip_epsilon*alpha}, new_experience)
 
 key, key_eval = jax.random.split(key)
 returns = evaluate(env, key_eval, model_params, model, n_actions, n_eval_agents, eval_discount)
 avg_return, std_return = np.average(returns), np.nanstd(returns)
 evals[new_experience, steps+1] = (avg_return, std_return)
-writer.add_scalars("Returns", {"avg": avg_return,
-                                "avg+std": avg_return + std_return,
-                                "avg-std": avg_return - std_return}, new_experience)
+wandb.log({"Returns/avg": avg_return,
+           "Returns/avg+std": avg_return + std_return,
+           "Returns/avg-std": avg_return - std_return}, new_experience)
 
 print("\nReturns avg ± std:")
 for exp, steps in evals:
     avg_return, std_return = evals[exp, steps]
     print(f"(Exp {exp}, steps {steps}) --> {avg_return:.2f} ± {std_return:.2f}")
 print()
+
+wandb.finish()
 
 # if (outer_iter+1) % checkpoint_iter == 0:
 #     experience = (outer_iter+1) * n_agents * horizon
