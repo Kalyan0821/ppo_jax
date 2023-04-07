@@ -7,7 +7,6 @@ from model import NN
 from typing import Callable
 
 
-# @partial(jax.jit, static_argnums=(2, 3, 4, 5, 6, 7))
 def loss_function(model_params: FrozenDict,
                   minibatch: dict[str, jnp.array],
                   model: NN,
@@ -232,7 +231,7 @@ def sample_batch(agents_stateFeature: jnp.array,
         return carry, append_to
 
     carry, batch = jax.lax.scan(scan_function, initial_carry, xs=None, length=horizon)
-    
+
     # Finally, also get v(S_horizon) for advantage calculation
     _, agents_value = model.apply(model_params, carry["agents_stateFeature"])
     agents_value = jnp.squeeze(agents_value, axis=-1)  # (n_agents,)
