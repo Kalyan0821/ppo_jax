@@ -98,8 +98,7 @@ evals = dict()
 for outer_iter in tqdm(range(n_outer_iters)):
     experience = outer_iter * n_agents * horizon
     steps = outer_iter
-    # print(f"Step {steps+1}:")
-
+    
     if outer_iter % eval_iter == 0:
         key, key_eval = jax.random.split(key)
         returns = evaluate(env, key_eval, model_params, model, n_actions, n_eval_agents, eval_discount)
@@ -146,10 +145,7 @@ for outer_iter in tqdm(range(n_outer_iters)):
                                                     normalize_advantages,
                                                     clip_epsilon*alpha,
                                                     permute_batches)
-        
-        # print(f"Epoch {epoch+1}: Loss = {np.mean(minibatch_losses):.2f}")
-        # print(f"ppo = {np.mean(ppo_losses):.5f}, val = {np.mean(val_losses):.2f}, ent = {np.mean(ent_bonuses):.2f}, %clip_trigger = {100*np.mean(clip_trigger_fracs):.2f}, approx_kl = {np.mean(approx_kls):.5f}")
-        
+                
     new_experience = experience + (n_agents*horizon)
     # wandb.log({"Losses/total": np.mean(minibatch_losses)}, new_experience)
     # wandb.log({"Losses/ppo": np.mean(ppo_losses)}, new_experience)
