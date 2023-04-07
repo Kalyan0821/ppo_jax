@@ -1,7 +1,7 @@
 {
 "env_name": "MountainCar-v0",
 "SEED": 0,
-"total_experience": 250000,
+"total_experience": 500000,
 "lr_begin": 5e-3,
 "lr_end": 5e-4,
 "n_agents": 16,
@@ -24,6 +24,4 @@
 "eval_discount": 1.0,
 "eval_iter": 40,
 "checkpoint_iter": 40,
-"checkpoint_dir": "./checkpoints",
-"log_dir": "./logs/"
-}
+"checkpoint_dir": "./checkpoints"}

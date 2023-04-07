@@ -46,8 +46,6 @@ eval_discount = config["eval_discount"]
 eval_iter = config["eval_iter"]
 checkpoint_iter = config["checkpoint_iter"]
 checkpoint_dir = config["checkpoint_dir"]
-log_dir = config["log_dir"]
-
 
 assert minibatch_size <= n_agents*horizon
 # wandb.init(project="ppo", 
