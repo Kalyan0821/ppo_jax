@@ -1,13 +1,13 @@
 {
 "env_name": "CartPole-v1",
 "SEED": 0,
-"total_experience": 1e6,
-"lr_begin": 5e-4,
-"lr_end": 5e-4,
-"n_agents": 16,
-"horizon": 32,
+"total_experience": 5e5,
+"lr_begin": 2.5e-4,
+"lr_end": 2.5e-4,
+"n_agents": 4,
+"horizon": 128,
 "n_epochs": 4,
-"minibatch_size": 32,
+"minibatch_size": 128,
 "hidden_layer_sizes": [64, 64],
 "normalize_advantages": true,
 
@@ -15,7 +15,7 @@
 "clip_epsilon": 0.2,
 "entropy_coeff": 0.01,
 "val_loss_coeff": 0.5,
-"clip_grad": null,
+"clip_grad": 0.5,
 
 "permute_batches": true,
 "discount": 0.99,

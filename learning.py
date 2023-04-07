@@ -108,52 +108,76 @@ def batch_epoch(batch: dict[str, jnp.array],
     reshaped_batch = jax.tree_map(reshape, batch)  # each: (n_iters, ...)
     assert reshaped_batch["states"].shape[0] == n_iters
 
-    minibatch_losses = []
-    ppo_losses = []
-    val_losses = []
-    ent_bonuses = []
-    clip_trigger_fracs = []
-    approx_kls = []
-    for minibatch_idx in range(n_iters):
-        minibatch = jax.tree_map(lambda x: x[minibatch_idx],
-                                 reshaped_batch)
+    # minibatch_losses = []
+    # ppo_losses = []
+    # val_losses = []
+    # ent_bonuses = []
+    # clip_trigger_fracs = []
+    # approx_kls = []
+    # for minibatch_idx in range(n_iters):
+    #     minibatch = jax.tree_map(lambda x: x[minibatch_idx],
+    #                              reshaped_batch)
+    #     assert minibatch["states"].shape[0] == minibatch_size
+
+    #     (minibatch_loss, loss_info), gradient = val_and_grad_function(model_params,
+    #                                                      minibatch,
+    #                                                      model,
+    #                                                      n_actions,
+    #                                                      minibatch_size,
+    #                                                      val_loss_coeff,
+    #                                                      entropy_coeff,
+    #                                                      normalize_advantages,
+    #                                                      clip_epsilon)
+        
+    #     param_updates, optimizer_state = optimizer.update(gradient,
+    #                                                       optimizer_state,
+    #                                                       model_params)
+    #     model_params = optax.apply_updates(model_params, param_updates)
+
+    #     minibatch_losses.append(minibatch_loss)
+    #     ppo_loss, val_loss, entropy_bonus, clip_trigger_frac, approx_kl = loss_info
+    #     ppo_losses.append(ppo_loss)
+    #     val_losses.append(val_loss)
+    #     ent_bonuses.append(entropy_bonus)
+    #     clip_trigger_fracs.append(clip_trigger_frac)
+    #     approx_kls.append(approx_kl)
+
+    # return (model_params, optimizer_state, minibatch_losses, 
+    #         ppo_losses, val_losses, ent_bonuses, clip_trigger_fracs, approx_kls)
+
+    initial_carry = {"reshaped_batch": reshaped_batch,
+                     "model_params": model_params,
+                     "clip_epsilon": clip_epsilon,
+                     "optimizer_state": optimizer_state}
+    def scan_function(carry, i):
+        minibatch = jax.tree_map(lambda x: x[i],
+                                 carry["reshaped_batch"])
         assert minibatch["states"].shape[0] == minibatch_size
 
-        (minibatch_loss, loss_info), gradient = val_and_grad_function(model_params,
-                                                         minibatch,
-                                                         model,
-                                                         n_actions,
-                                                         minibatch_size,
-                                                         val_loss_coeff,
-                                                         entropy_coeff,
-                                                         normalize_advantages,
-                                                         clip_epsilon)
+        (minibatch_loss, loss_info), gradient = val_and_grad_function(carry["model_params"],
+                                                                      minibatch,
+                                                                      model,
+                                                                      n_actions,
+                                                                      minibatch_size,
+                                                                      val_loss_coeff,
+                                                                      entropy_coeff,
+                                                                      normalize_advantages,
+                                                                      carry["clip_epsilon"])
         
-        param_updates, optimizer_state = optimizer.update(gradient,
-                                                          optimizer_state,
-                                                          model_params)
-        model_params = optax.apply_updates(model_params, param_updates)
+        param_updates, carry["optimizer_state"] = optimizer.update(gradient,
+                                                                   carry["optimizer_state"],
+                                                                   carry["model_params"])
+        carry["model_params"] = optax.apply_updates(carry["model_params"], param_updates)
 
-        minibatch_losses.append(minibatch_loss)
         ppo_loss, val_loss, entropy_bonus, clip_trigger_frac, approx_kl = loss_info
-        ppo_losses.append(ppo_loss)
-        val_losses.append(val_loss)
-        ent_bonuses.append(entropy_bonus)
-        clip_trigger_fracs.append(clip_trigger_frac)
-        approx_kls.append(approx_kl)
+        append = (minibatch_loss, ppo_loss, val_loss, entropy_bonus, clip_trigger_frac, approx_kl)
+        return carry, append
 
-    return (model_params, optimizer_state, minibatch_losses, 
-            ppo_losses, val_losses, ent_bonuses, clip_trigger_fracs, approx_kls)
+    carry, result = jax.lax.scan(scan_function, initial_carry, xs=jnp.arange(n_iters))
+    
+    return (carry["model_params"], carry["optimizer_state"], *result)
 
 
-@partial(jax.jit, static_argnums=(1,))
-@partial(jax.vmap, in_axes=(0, None, 0, 0), out_axes=(0, 0))
-def sample_action_and_logLikelihood(key, n_actions, probs, logProbs):
-    assert probs.shape == logProbs.shape == (n_actions,)
-
-    action = jax.random.choice(key, n_actions, p=probs)
-    logLikelihood = logProbs[action]
-    return (action, logLikelihood)
 
 
 @partial(jax.jit, static_argnums=(3, 4, 5))
@@ -168,30 +192,39 @@ def batch_advantages_and_returns(values: jnp.array,
     assert rewards.shape == next_is_terminal.shape == (horizon,)
     assert values.shape == (horizon + 1,)
 
-    advantages = []
-    bootstrap_returns = []
-    next_advantage = 0.
-    for t in reversed(range(horizon)):  # horizon-1, ..., 2, 1, 0
-        # if next_is_terminal[t]:
-        #     next_value = 0.
-        #     next_advantage = 0.
-        # else:
-        #     next_value = values[t+1]
-        next_value = jnp.where(next_is_terminal[t], 0., values[t+1])
-        next_advantage = jnp.where(next_is_terminal[t], 0., next_advantage)
+    initial_carry = {"next_is_terminal": next_is_terminal, 
+                     "values": values, 
+                     "rewards": rewards,
+                     "next_advantage": 0.}
+    def scan_function(carry, t):
+        next_value = jnp.where(carry["next_is_terminal"][t], 0., carry["values"][t+1])
+        next_advantage = jnp.where(carry["next_is_terminal"][t], 0., carry["next_advantage"])
 
-        td_error = rewards[t] + discount*next_value - values[t]
+        td_error = carry["rewards"][t] + discount*next_value - carry["values"][t]
         advantage = td_error + (discount*gae_lambda)*next_advantage
-        bootstrap_return = advantage + values[t]
+        bootstrap_return = advantage + carry["values"][t]
 
-        advantages.append(advantage)
-        bootstrap_returns.append(bootstrap_return)
-        next_advantage = advantage
+        append_to = {"advantages": advantage, 
+                     "bootstrap_returns": bootstrap_return}
 
-    advantages = jnp.asarray(advantages[::-1])
-    bootstrap_returns = jnp.asarray(bootstrap_returns[::-1])
+        carry["next_advantage"] = advantage
 
-    return advantages, bootstrap_returns
+        return carry, append_to
+
+
+    _, result = jax.lax.scan(scan_function, initial_carry, xs=jnp.arange(horizon), reverse=True)
+
+    return result["advantages"], result["bootstrap_returns"]
+
+
+@partial(jax.jit, static_argnums=(1,))
+@partial(jax.vmap, in_axes=(0, None, 0, 0), out_axes=(0, 0))
+def sample_action_and_logLikelihood(key, n_actions, probs, logProbs):
+    assert probs.shape == logProbs.shape == (n_actions,)
+
+    action = jax.random.choice(key, n_actions, p=probs)
+    logLikelihood = logProbs[action]
+    return (action, logLikelihood)
 
 
 @partial(jax.jit, static_argnums=(2, 5, 6, 7, 8, 9, 10))
@@ -207,21 +240,18 @@ def sample_batch(agents_stateFeature: jnp.array,
                  discount: float,
                  gae_lambda: float):
     
-    agents_stateFeature_list = []  # (horizon, n_agents, n_features)
-    agents_value_list = []   # (horizon + 1, n_agents), where column = [v_0, v_1, v_2, ..., v_H]
-    agents_action_list = []  # (horizon, n_agents)
-    agents_logLikelihood_list = []  # (horizon, n_agents)
-    agents_reward_list = []  # (horizon, n_agents), where column = [R_1, R_2, ..., R_H]
-    agents_nextTerminal_list = []  # (horizon, n_agents)
-
-    for _ in range(horizon):
+    initial_carry = {"model_params": model_params, 
+                     "agents_stateFeature": agents_stateFeature, 
+                     "agents_state": agents_state, 
+                     "key": key}
+    def scan_function(carry, x=None):
         # (n_agents, n_actions), (n_agents, 1)
-        agents_logProbs, agents_value = model.apply(model_params, agents_stateFeature)
+        agents_logProbs, agents_value = model.apply(carry["model_params"], carry["agents_stateFeature"])
         agents_probs = jnp.exp(agents_logProbs)
         agents_value = jnp.squeeze(agents_value, axis=-1)  # (n_agents,)
         assert agents_probs.shape == (n_agents, n_actions)
 
-        key, *agents_subkeyPolicy = jax.random.split(key, n_agents+1)
+        key, *agents_subkeyPolicy = jax.random.split(carry["key"], n_agents+1)
         agents_subkeyPolicy = jnp.asarray(agents_subkeyPolicy)  # (n_agents, ...)
         # (n_agents,.), int, (n_agents,n_actions), (n_agents,n_actions) --> (n_agents,), (n_agents,)
         agents_action, agents_logLikelihood = sample_action_and_logLikelihood(
@@ -232,46 +262,40 @@ def sample_batch(agents_stateFeature: jnp.array,
         assert agents_action.shape == (n_agents,)
         assert agents_logLikelihood.shape == (n_agents,)
 
-        agents_stateFeature_list.append(agents_stateFeature)
-        agents_value_list.append(agents_value)
-        agents_action_list.append(agents_action)
-        agents_logLikelihood_list.append(agents_logLikelihood)
+        append_to = {"states": carry["agents_stateFeature"],
+                     "values": agents_value,
+                     "actions": agents_action,
+                     "old_policy_log_likelihoods": agents_logLikelihood}
 
         ################### MDP TRANSITION ###################        
-        key, *agents_subkeyMDP = jax.random.split(key, n_agents+1)
+        carry["key"], *agents_subkeyMDP = jax.random.split(key, n_agents+1)
         agents_subkeyMDP = jnp.asarray(agents_subkeyMDP)  # (n_agents, ...)
-        agents_stateFeature, agents_state, agents_reward, agents_nextTerminal, _ = vecEnv_step(
+        carry["agents_stateFeature"], carry["agents_state"], append_to["rewards"], append_to["nextTerminals"], _ = vecEnv_step(
                                                                 agents_subkeyMDP, 
-                                                                agents_state, 
-                                                                agents_action)        
-        agents_reward_list.append(agents_reward)
-        agents_nextTerminal_list.append(agents_nextTerminal)
+                                                                carry["agents_state"], 
+                                                                agents_action)
+        return carry, append_to
 
+
+    carry, batch = jax.lax.scan(scan_function, initial_carry, xs=None, length=horizon)
     # Finally, also get v(S_horizon) for advantage calculation
-    _, agents_value = model.apply(model_params, agents_stateFeature)
+    _, agents_value = model.apply(model_params, carry["agents_stateFeature"])
     agents_value = jnp.squeeze(agents_value, axis=-1)  # (n_agents,)
-    agents_value_list.append(agents_value)
-
-    agents_value_array = jnp.asarray(agents_value_list)  # (horizon + 1, n_agents), where column = [v_0, v_1, v_2, ..., v_H]
-    agents_reward_array = jnp.asarray(agents_reward_list)  # (horizon, n_agents), where column = [R_1, R_2, ..., R_H]
-    agents_nextTerminal_array = jnp.asarray(agents_nextTerminal_list)  # (horizon, n_agents)
-
+    batch["values"] = jnp.row_stack((batch["values"],
+                                     agents_value))  # (horizon + 1, n_agents), where column = [v_0, v_1, v_2, ..., v_H]
+    
     # Both: (horizon, n_agents)
-    agents_advantage_array, agents_bootstrapReturn_array = batch_advantages_and_returns(
-                                                                agents_value_array,
-                                                                agents_reward_array,
-                                                                agents_nextTerminal_array,
+    batch["advantages"], batch["bootstrap_returns"] = batch_advantages_and_returns(
+                                                                batch["values"],
+                                                                batch["rewards"],
+                                                                batch["nextTerminals"],
                                                                 horizon,
                                                                 discount,
                                                                 gae_lambda)
-    assert agents_advantage_array.shape == agents_bootstrapReturn_array.shape == (horizon, n_agents)
+    assert batch["advantages"].shape == batch["bootstrap_returns"].shape == (horizon, n_agents)
 
-    batch = dict()
-    batch["states"] = jnp.asarray(agents_stateFeature_list)  # (horizon, n_agents, n_features)
-    batch["actions"] = jnp.asarray(agents_action_list)  # (horizon, n_agents)
-    batch["old_policy_log_likelihoods"] = jnp.asarray(agents_logLikelihood_list)  # (horizon, n_agents)
-    batch["advantages"] = agents_advantage_array  # (horizon, n_agents)
-    batch["bootstrap_returns"] = agents_bootstrapReturn_array  # (horizon, n_agents)
+    return_keys = ["states", "actions", "old_policy_log_likelihoods", "advantages", "bootstrap_returns"]
+    return_batch = {k: batch[k] for k in return_keys}
 
-    return agents_stateFeature, agents_state, batch, key
+    return carry["agents_stateFeature"], carry["agents_state"], return_batch, carry["key"]
 

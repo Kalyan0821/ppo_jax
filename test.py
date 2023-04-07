@@ -18,22 +18,6 @@ def full_return(env: Environment,
     key, subkey_reset = jax.random.split(key)
     state_feature, state = env.reset(subkey_reset)  # state_feature: (n_features,)
 
-    # next_is_terminal = False
-    # t = 0
-    # discounted_return = 0
-
-    # while not next_is_terminal:
-    #     key, subkey_policy, subkey_mdp = jax.random.split(key, 3)
-
-    #     # (n_actions), (1,)
-    #     policy_log_probs, _ = model.apply(model_params, state_feature)
-    #     policy_probs = jnp.exp(policy_log_probs)
-    #     action = jax.random.choice(subkey_policy, n_actions, p=policy_probs)
-
-    #     state_feature, state, reward, next_is_terminal, _ = env.step(subkey_mdp, state, action)
-    #     discounted_return += (discount**t) * reward
-        
-    #     t += 1
     initial_val = {"next_is_terminal": False,
                    't': 0,
                    "discounted_return": 0,
@@ -60,7 +44,6 @@ def full_return(env: Environment,
         return val
 
     val = jax.lax.while_loop(condition_function, body_function, initial_val)
-    
     return val["discounted_return"]
 
 

@@ -50,9 +50,9 @@ log_dir = config["log_dir"]
 
 
 assert minibatch_size <= n_agents*horizon
-wandb.init(project="ppo", 
-           config=config,
-           name=env_name+'-'+datetime.datetime.now().strftime("%d.%m-%H:%M"))
+# wandb.init(project="ppo", 
+#            config=config,
+#            name=env_name+'-'+datetime.datetime.now().strftime("%d.%m-%H:%M"))
 
 env, env_params = gymnax.make(env_name)
 key = jax.random.PRNGKey(SEED)
@@ -108,9 +108,9 @@ for outer_iter in tqdm(range(n_outer_iters)):
         avg_return, std_return = np.average(returns), np.nanstd(returns)
         evals[experience, steps] = (avg_return, std_return)
 
-        wandb.log({"Returns/avg": avg_return,
-                   "Returns/avg+std": avg_return + std_return,
-                   "Returns/avg-std": avg_return - std_return}, experience)
+        # wandb.log({"Returns/avg": avg_return,
+        #            "Returns/avg+std": avg_return + std_return,
+        #            "Returns/avg-std": avg_return - std_return}, experience)
         
     agents_stateFeature, agents_state, batch, key = sample_batch(agents_stateFeature,
                                                                  agents_state,
@@ -153,22 +153,22 @@ for outer_iter in tqdm(range(n_outer_iters)):
         # print(f"ppo = {np.mean(ppo_losses):.5f}, val = {np.mean(val_losses):.2f}, ent = {np.mean(ent_bonuses):.2f}, %clip_trigger = {100*np.mean(clip_trigger_fracs):.2f}, approx_kl = {np.mean(approx_kls):.5f}")
         
     new_experience = experience + (n_agents*horizon)
-    wandb.log({"Losses/total": np.mean(minibatch_losses)}, new_experience)
-    wandb.log({"Losses/ppo": np.mean(ppo_losses)}, new_experience)
-    wandb.log({"Losses/val": np.mean(val_losses)}, new_experience)
-    wandb.log({"Losses/ent": np.mean(ent_bonuses)}, new_experience)
+    # wandb.log({"Losses/total": np.mean(minibatch_losses)}, new_experience)
+    # wandb.log({"Losses/ppo": np.mean(ppo_losses)}, new_experience)
+    # wandb.log({"Losses/val": np.mean(val_losses)}, new_experience)
+    # wandb.log({"Losses/ent": np.mean(ent_bonuses)}, new_experience)
 
-    wandb.log({"Debug/%clip_trig": 100*np.mean(clip_trigger_fracs)}, new_experience)
-    wandb.log({"Debug/approx_kl": np.mean(approx_kls)}, new_experience)
-    wandb.log({"Debug/clip_epsilon": clip_epsilon*alpha}, new_experience)
+    # wandb.log({"Debug/%clip_trig": 100*np.mean(clip_trigger_fracs)}, new_experience)
+    # wandb.log({"Debug/approx_kl": np.mean(approx_kls)}, new_experience)
+    # wandb.log({"Debug/clip_epsilon": clip_epsilon*alpha}, new_experience)
 
 key, key_eval = jax.random.split(key)
 returns = evaluate(env, key_eval, model_params, model, n_actions, n_eval_agents, eval_discount)
 avg_return, std_return = np.average(returns), np.nanstd(returns)
 evals[new_experience, steps+1] = (avg_return, std_return)
-wandb.log({"Returns/avg": avg_return,
-           "Returns/avg+std": avg_return + std_return,
-           "Returns/avg-std": avg_return - std_return}, new_experience)
+# wandb.log({"Returns/avg": avg_return,
+#            "Returns/avg+std": avg_return + std_return,
+#            "Returns/avg-std": avg_return - std_return}, new_experience)
 
 print("\nReturns avg ± std:")
 for exp, steps in evals:
@@ -176,19 +176,7 @@ for exp, steps in evals:
     print(f"(Exp {exp}, steps {steps}) --> {avg_return:.2f} ± {std_return:.2f}")
 print()
 
-wandb.finish()
-
-# if (outer_iter+1) % checkpoint_iter == 0:
-#     experience = (outer_iter+1) * n_agents * horizon
-#     checkpoint = {"model": model, 
-#                   "params": model_params}
-#     print("Saving ...")
-#     save_checkpoint(checkpoint_dir, checkpoint, experience, 
-#                     prefix=env_name+"_ckpt_", 
-#                     keep_every_n_steps=checkpoint_iter, 
-#                     overwrite=True)
-
-# print('-------------')
+# wandb.finish()
 
 
 
