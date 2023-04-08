@@ -101,7 +101,7 @@ for outer_iter in tqdm(range(n_outer_iters)):
     if outer_iter % eval_iter == 0:
         key, key_eval = jax.random.split(key)
         returns = evaluate(env, key_eval, model_params, model, n_actions, n_eval_agents, eval_discount)
-        avg_return, std_return = jnp.average(returns), jnp.nanstd(returns)
+        avg_return, std_return = jnp.mean(returns), jnp.std(returns)
         evals[experience, steps] = (avg_return, std_return)
 
         # wandb.log({"Returns/avg": avg_return,
@@ -157,7 +157,7 @@ for outer_iter in tqdm(range(n_outer_iters)):
 
 key, key_eval = jax.random.split(key)
 returns = evaluate(env, key_eval, model_params, model, n_actions, n_eval_agents, eval_discount)
-avg_return, std_return = jnp.average(returns), jnp.nanstd(returns)
+avg_return, std_return = jnp.mean(returns), jnp.std(returns)
 evals[new_experience, steps+1] = (avg_return, std_return)
 # wandb.log({"Returns/avg": avg_return,
 #            "Returns/avg+std": avg_return + std_return,
