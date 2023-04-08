@@ -6,8 +6,8 @@
 "lr_end": 2.5e-4,
 "n_agents": 4,
 "horizon": 128,
-"n_epochs": 4,
-"minibatch_size": 128,
+"n_epochs": 16,
+"minibatch_size": 64,
 "hidden_layer_sizes": [64, 64],
 "normalize_advantages": true,
 
