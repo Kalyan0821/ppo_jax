@@ -4,7 +4,6 @@ import optax
 import jax.numpy as jnp
 from flax.training.checkpoints import save_checkpoint
 from tqdm import tqdm
-import numpy as np
 import argparse
 import json
 import wandb
@@ -102,7 +101,7 @@ for outer_iter in tqdm(range(n_outer_iters)):
     if outer_iter % eval_iter == 0:
         key, key_eval = jax.random.split(key)
         returns = evaluate(env, key_eval, model_params, model, n_actions, n_eval_agents, eval_discount)
-        avg_return, std_return = np.average(returns), np.nanstd(returns)
+        avg_return, std_return = jnp.average(returns), jnp.nanstd(returns)
         evals[experience, steps] = (avg_return, std_return)
 
         # wandb.log({"Returns/avg": avg_return,
@@ -158,7 +157,7 @@ for outer_iter in tqdm(range(n_outer_iters)):
 
 key, key_eval = jax.random.split(key)
 returns = evaluate(env, key_eval, model_params, model, n_actions, n_eval_agents, eval_discount)
-avg_return, std_return = np.average(returns), np.nanstd(returns)
+avg_return, std_return = jnp.average(returns), jnp.nanstd(returns)
 evals[new_experience, steps+1] = (avg_return, std_return)
 # wandb.log({"Returns/avg": avg_return,
 #            "Returns/avg+std": avg_return + std_return,
@@ -167,7 +166,7 @@ evals[new_experience, steps+1] = (avg_return, std_return)
 print("\nReturns avg ± std:")
 for exp, steps in evals:
     avg_return, std_return = evals[exp, steps]
-    print(f"(Exp {exp}, steps {steps}) --> {avg_return:.2f} ± {std_return:.2f}")
+    print(f"(Exp {exp}, steps {steps}) --> {avg_return} ± {std_return}")
 print()
 
 # wandb.finish()
