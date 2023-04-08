@@ -53,20 +53,20 @@ assert minibatch_size <= n_agents*horizon
 
 env, env_params = gymnax.make(env_name)
 key = jax.random.PRNGKey(SEED)
-key, subkey_env, subkey_model = jax.random.split(key, 3)
-state_feature, _ = env.reset(subkey_env)
+key, subkey_model = jax.random.split(key)
+example_state_feature, _ = env.reset(jax.random.PRNGKey(0))
 n_actions = env.action_space().n
 
 model = NN(hidden_layer_sizes=hidden_layer_sizes, 
            n_actions=n_actions, 
-           single_input_shape=state_feature.shape)
-model_params = model.init(subkey_model, jnp.zeros(state_feature.shape))
+           single_input_shape=example_state_feature.shape)
+model_params = model.init(subkey_model, jnp.zeros(example_state_feature.shape))
 
 n_outer_iters = total_experience // (n_agents * horizon)
 n_iters_per_epoch = n_agents*horizon // minibatch_size  # num_minibatches
 n_inner_iters = n_epochs * n_iters_per_epoch 
 
-print("\nState feature shape:", state_feature.shape)
+print("\nState feature shape:", example_state_feature.shape)
 print("Action space:", n_actions)
 print("Minibatches per epoch:", n_iters_per_epoch)
 print("Outer steps:", n_outer_iters, '\n')
