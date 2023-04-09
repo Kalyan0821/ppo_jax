@@ -6,7 +6,7 @@ from flax.core.frozen_dict import FrozenDict
 from model import NN
 
 
-@partial(jax.jit, static_argnums=(0, 3, 4, 5))
+@partial(jax.jit, static_argnums=(0, 3, 4))
 @partial(jax.vmap, in_axes=(None, 0, None, None, None, None))  # run on several agents in parallel
 def full_return(env: Environment,
                 key: jax.random.PRNGKey,
@@ -47,7 +47,7 @@ def full_return(env: Environment,
     return val["discounted_return"]
 
 
-@partial(jax.jit, static_argnums=(0, 3, 4, 5, 6))
+@partial(jax.jit, static_argnums=(0, 3, 4, 5))
 def evaluate(env: Environment,
              key: jax.random.PRNGKey,
              model_params: FrozenDict, 

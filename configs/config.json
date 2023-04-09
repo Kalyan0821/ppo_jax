@@ -17,11 +17,9 @@
 "val_loss_coeff": 0.5,
 "clip_grad": 0.5,
 
-"permute_batches": true,
 "discount": 0.99,
 "gae_lambda": 0.95,
 "n_eval_agents": 164,
 "eval_discount": 1.0,
-"eval_iter": 40,
-"checkpoint_iter": 40,
-"checkpoint_dir": "./checkpoints"}
+"permute_batches": true,
+"eval_iter": 40}

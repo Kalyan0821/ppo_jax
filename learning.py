@@ -45,8 +45,11 @@ def loss_function(model_params: FrozenDict,
     # Approximate avg. KL(old || new), from John Schulman blog
     approx_kl = jnp.mean(-log_likelihood_ratios + likelihood_ratios-1)
     
-    if normalize_advantages:
-        advantages = (advantages-jnp.mean(advantages)) / (jnp.std(advantages)+1e-8)
+    # if normalize_advantages:
+    #     advantages = (advantages-jnp.mean(advantages)) / (jnp.std(advantages)+1e-8)
+    advantages = jnp.where(normalize_advantages, 
+                           (advantages-jnp.mean(advantages)) / (jnp.std(advantages)+1e-8), 
+                           advantages)
 
     policy_gradient_losses = likelihood_ratios * advantages  # (minibatch_size,)
     clip_losses = clip_likelihood_ratios * advantages
@@ -60,7 +63,7 @@ def loss_function(model_params: FrozenDict,
 
 
 val_and_grad_function = jax.jit(jax.value_and_grad(loss_function, argnums=0, has_aux=True),
-                                static_argnums=(2, 3, 4, 7))
+                                static_argnums=(2, 3, 4))
 
 
 @jax.jit
@@ -76,7 +79,7 @@ def permute(batch, key):
     return batch
 
 
-@partial(jax.jit, static_argnums=(3, 5, 6, 7, 8, 9, 12, 14))
+@partial(jax.jit, static_argnums=(3, 5, 6, 7, 8, 9, 14))
 def batch_epoch(batch: dict[str, jnp.array],
                 permutation_key: jax.random.PRNGKey,
                 model_params: FrozenDict,
@@ -106,7 +109,6 @@ def batch_epoch(batch: dict[str, jnp.array],
         return jnp.reshape(x, new_shape)
     reshaped_batch = jax.tree_map(reshape, batch)  # each: (n_iters, ...)
     assert reshaped_batch["states"].shape[0] == n_iters
-
 
     initial_carry = {"model_params": model_params,
                      "optimizer_state": optimizer_state}

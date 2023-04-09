@@ -40,8 +40,6 @@ gae_lambda = config["gae_lambda"]
 n_eval_agents = config["n_eval_agents"]
 eval_discount = config["eval_discount"]
 eval_iter = config["eval_iter"]
-checkpoint_iter = config["checkpoint_iter"]
-checkpoint_dir = config["checkpoint_dir"]
 assert minibatch_size <= n_agents*horizon
 
 env, env_params = gymnax.make(env_name)
@@ -56,9 +54,10 @@ model = NN(hidden_layer_sizes=hidden_layer_sizes,
 
 
 @jax.jit
-@partial(jax.vmap, in_axes=(0, None))
-@partial(jax.vmap, in_axes=(None, 0))
-def train_once(key, entropy_coeff):
+@partial(jax.vmap, in_axes=(0, None, None))
+@partial(jax.vmap, in_axes=(None, 0, None))
+@partial(jax.vmap, in_axes=(None, None, 0))
+def train_once(key, entropy_coeff, total_experience):
 
     key, subkey_model = jax.random.split(key)
     model_params = model.init(subkey_model, jnp.zeros(example_state_feature.shape))
@@ -69,8 +68,8 @@ def train_once(key, entropy_coeff):
 
     if anneal:
         lr = optax.linear_schedule(init_value=lr_begin, 
-                                end_value=lr_end, 
-                                transition_steps=n_outer_iters*n_inner_iters)
+                                   end_value=lr_end, 
+                                   transition_steps=n_outer_iters*n_inner_iters)
     else:
         lr = lr_begin
 
@@ -154,6 +153,7 @@ def train_once(key, entropy_coeff):
         return carry, append_to
 
     carry, result = jax.lax.scan(scan_function, initial_carry, xs=jnp.arange(n_outer_iters))
+    # carry, result = jax.lax.scan(scan_function, initial_carry, xs=jnp.arange(n_outer_iters))
 
     _, key_eval = jax.random.split(carry["key"])
     returns = evaluate(env, key_eval, carry["model_params"], model, n_actions, n_eval_agents, eval_discount)
@@ -172,20 +172,24 @@ def train_once(key, entropy_coeff):
 if __name__ == "__main__":
     key = jax.random.PRNGKey(SEED)
     
+
+    # fix minibatch_size, horizon, n_agents
+
     keys = jnp.array([key]*3)
-    entropy_coeffs = jnp.array([0.01, 0.03])
+    entropy_coeffs = jnp.array([0.03, 0.01, 0.05, 0.07, 0.09])
+    exps = jnp.array([1e5, 2e5, 3e5])
 
-    result = train_once(keys, entropy_coeffs)
+    result = train_once(keys, entropy_coeffs, exps)
+    print(result["avg_returns"].shape)
 
-    print(result["experiences"].shape)
-    print("\nReturns avg ± std:")
+    # print("\nReturns avg ± std:")
 
-    for e in range(len(result["steps"][0])):
-        print("Entropy:", entropy_coeffs[e])
+    # for e in range(len(result["steps"][0])):
+    #     print("Entropy:", entropy_coeffs[e])
 
-        for i in range(len(result["steps"][0, 0])):        
-            exp, step = result["experiences"][0, 0, i], result["steps"][0, 0, i]
-            if jnp.mean(result["std_returns"][:, e, i]) >= 0:
-                avg_return, std_return = result["avg_returns"][:, e, i], result["std_returns"][:, e, i]
-                print(f"(Exp {exp}, steps {step}) --> {avg_return} ± {std_return}")
-        print()
+    #     for i in range(len(result["steps"][0, 0])):        
+    #         exp, step = result["experiences"][0, 0, i], result["steps"][0, 0, i]
+    #         if jnp.mean(result["std_returns"][:, e, i]) >= 0:
+    #             avg_return, std_return = result["avg_returns"][:, e, i], result["std_returns"][:, e, i]
+    #             print(f"(Exp {exp}, steps {step}) --> {avg_return} ± {std_return}")
+    #     print()
