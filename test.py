@@ -22,7 +22,6 @@ def full_return(env: Environment,
                    't': 0,
                    "discounted_return": 0,
                    "key": key,
-                   "model_params": model_params,
                    "state_feature": state_feature,
                    "state": state}
 
@@ -33,7 +32,7 @@ def full_return(env: Environment,
         val["key"], subkey_policy, subkey_mdp = jax.random.split(val["key"], 3)
 
         # (n_actions), (1,)
-        policy_log_probs, _ = model.apply(val["model_params"], val["state_feature"])
+        policy_log_probs, _ = model.apply(model_params, val["state_feature"])
         policy_probs = jnp.exp(policy_log_probs)
         assert policy_probs.shape == (n_actions,), f"{policy_probs.shape}, {n_actions}"
         action = jax.random.choice(subkey_policy, n_actions, p=policy_probs)

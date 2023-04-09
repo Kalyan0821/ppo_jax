@@ -33,7 +33,7 @@ anneal = config["anneal"]
 clip_epsilon = config["clip_epsilon"]
 entropy_coeff = config["entropy_coeff"]
 val_loss_coeff = config["val_loss_coeff"]
-clip_grad = config["clip_grad"]
+clip_grad = float(config["clip_grad"])
 permute_batches = config["permute_batches"]
 discount = config["discount"]
 gae_lambda = config["gae_lambda"]
@@ -55,9 +55,11 @@ model = NN(hidden_layer_sizes=hidden_layer_sizes,
 
 @jax.jit
 @partial(jax.vmap, in_axes=(0, None, None))
-@partial(jax.vmap, in_axes=(None, 0, None))
+# @partial(jax.vmap, in_axes=(None, 0, None))
 @partial(jax.vmap, in_axes=(None, None, 0))
-def train_once(key, entropy_coeff, total_experience):
+# @partial(jax.vmap, in_axes=(0, None))
+# @partial(jax.vmap, in_axes=(None, 0))
+def train_once(key, entropy_coeff, clip_grad):
 
     key, subkey_model = jax.random.split(key)
     model_params = model.init(subkey_model, jnp.zeros(example_state_feature.shape))
@@ -66,19 +68,13 @@ def train_once(key, entropy_coeff, total_experience):
     n_iters_per_epoch = n_agents*horizon // minibatch_size  # num_minibatches
     n_inner_iters = n_epochs * n_iters_per_epoch 
 
-    if anneal:
-        lr = optax.linear_schedule(init_value=lr_begin, 
-                                   end_value=lr_end, 
-                                   transition_steps=n_outer_iters*n_inner_iters)
-    else:
-        lr = lr_begin
-
-    if clip_grad:
-        optimizer = optax.chain(optax.clip_by_global_norm(max_norm=clip_grad), 
-                                optax.adam(lr, eps=1e-5))
-    else:
-        # optimizer = optax.adam(lr, eps=1e-5)
-        optimizer = optax.adam(lr)
+    lr = optax.linear_schedule(init_value=lr_begin, 
+                               end_value=lr_end, 
+                               transition_steps=n_outer_iters*n_inner_iters)
+    
+    max_norm = jnp.where(clip_grad, clip_grad, jnp.inf).astype(jnp.float32)
+    optimizer = optax.chain(optax.clip_by_global_norm(max_norm=max_norm), 
+                            optax.adam(lr, eps=1e-5))
 
     key, *agents_subkeyReset = jax.random.split(key, n_agents+1)
     agents_subkeyReset = jnp.asarray(agents_subkeyReset)
@@ -98,8 +94,7 @@ def train_once(key, entropy_coeff, total_experience):
             key, key_eval = jax.random.split(carry["key"])
             returns = evaluate(env, key_eval, carry["model_params"], model, n_actions, n_eval_agents, eval_discount)
             avg_return, std_return = jnp.mean(returns), jnp.std(returns)
-            return avg_return, std_return, key
-                
+            return avg_return, std_return, key            
         def f_false(carry):
             return -1.0, -1.0, carry["key"]
         
@@ -119,7 +114,7 @@ def train_once(key, entropy_coeff, total_experience):
         # (agents_stateFeature, agents_state) returned were the last ones seen in this step, and will initialize the next step
         assert carry["agents_stateFeature"].shape[0] == n_agents
 
-        alpha = (1-idx/n_outer_iters) if anneal else 1.
+        alpha = jnp.where(anneal, (1-idx/n_outer_iters), 1.0)
 
         for _ in range(n_epochs):
             key, permutation_key = jax.random.split(key)
@@ -153,7 +148,6 @@ def train_once(key, entropy_coeff, total_experience):
         return carry, append_to
 
     carry, result = jax.lax.scan(scan_function, initial_carry, xs=jnp.arange(n_outer_iters))
-    # carry, result = jax.lax.scan(scan_function, initial_carry, xs=jnp.arange(n_outer_iters))
 
     _, key_eval = jax.random.split(carry["key"])
     returns = evaluate(env, key_eval, carry["model_params"], model, n_actions, n_eval_agents, eval_discount)
@@ -165,7 +159,6 @@ def train_once(key, entropy_coeff, total_experience):
     result["std_returns"] = jnp.append(result["std_returns"], std_return)
 
     return_keys = ["experiences", "steps", "avg_returns", "std_returns"]
-
     return {k: result[k] for k in return_keys}
 
 
@@ -177,15 +170,15 @@ if __name__ == "__main__":
 
     keys = jnp.array([key]*3)
     entropy_coeffs = jnp.array([0.03, 0.01, 0.05, 0.07, 0.09])
-    exps = jnp.array([1e5, 2e5, 3e5])
+    clips = jnp.array([0.5, 1.0, False])
 
-    result = train_once(keys, entropy_coeffs, exps)
+    result = train_once(keys, entropy_coeffs[0], clips)
     print(result["avg_returns"].shape)
 
-    # print("\nReturns avg ± std:")
+    print("\nReturns avg ± std:")
 
     # for e in range(len(result["steps"][0])):
-    #     print("Entropy:", entropy_coeffs[e])
+    #     print("Clip:", entropy_coeffs[e])
 
     #     for i in range(len(result["steps"][0, 0])):        
     #         exp, step = result["experiences"][0, 0, i], result["steps"][0, 0, i]
