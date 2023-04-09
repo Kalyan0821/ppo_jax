@@ -60,7 +60,7 @@ def loss_function(model_params: FrozenDict,
 
 
 val_and_grad_function = jax.jit(jax.value_and_grad(loss_function, argnums=0, has_aux=True),
-                                static_argnums=(2, 3, 4, 5, 6, 7))
+                                static_argnums=(2, 3, 4, 7))
 
 
 @jax.jit
@@ -76,7 +76,7 @@ def permute(batch, key):
     return batch
 
 
-@partial(jax.jit, static_argnums=(3, 5, 6, 7, 8, 9, 10, 11, 12, 14))
+@partial(jax.jit, static_argnums=(3, 5, 6, 7, 8, 9, 12, 14))
 def batch_epoch(batch: dict[str, jnp.array],
                 permutation_key: jax.random.PRNGKey,
                 model_params: FrozenDict,
@@ -139,7 +139,7 @@ def batch_epoch(batch: dict[str, jnp.array],
     return (carry["model_params"], carry["optimizer_state"], *result)
 
 
-@partial(jax.jit, static_argnums=(3, 4, 5))
+@partial(jax.jit, static_argnums=(3,))
 @partial(jax.vmap, in_axes=(1, 1, 1, None, None, None), out_axes=(1, 1))
 def batch_advantages_and_returns(values: jnp.array,
                                  rewards: jnp.array,
@@ -182,7 +182,7 @@ def sample_action_and_logLikelihood(key, n_actions, probs, logProbs):
     return (action, logLikelihood)
 
 
-@partial(jax.jit, static_argnums=(2, 5, 6, 7, 8, 9, 10))
+@partial(jax.jit, static_argnums=(2, 5, 6, 7, 8))
 def sample_batch(agents_stateFeature: jnp.array,
                  agents_state: jnp.array,
                  vecEnv_step: Callable,
