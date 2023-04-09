@@ -71,7 +71,6 @@ def permute(batch, key):
     """ batch: each jnp.array: (horizon, n_agents, ...) """
 
     _, key0, key1 = jax.random.split(key, 3)
-
     batch = jax.tree_map(lambda x: jax.random.permutation(key0, x, axis=0),
                          batch)
     batch = jax.tree_map(lambda x: jax.random.permutation(key1, x, axis=1),
@@ -79,7 +78,7 @@ def permute(batch, key):
     return batch
 
 
-@partial(jax.jit, static_argnums=(3, 5, 6, 7, 8, 9, 14))
+@partial(jax.jit, static_argnums=(3, 5, 6, 7, 8, 9))
 def batch_epoch(batch: dict[str, jnp.array],
                 permutation_key: jax.random.PRNGKey,
                 model_params: FrozenDict,
@@ -93,12 +92,10 @@ def batch_epoch(batch: dict[str, jnp.array],
                 val_loss_coeff: float,
                 entropy_coeff: float,
                 normalize_advantages: bool,
-                clip_epsilon: float,
-                permute_batch: bool):
+                clip_epsilon: float):
     """ batch: each jnp.array: (horizon, n_agents, ...) """
 
-    if permute_batch:
-        batch = permute(batch, permutation_key)
+    batch = permute(batch, permutation_key)
     assert batch["states"].shape[:2] == (horizon, n_agents)
 
     n_iters = horizon*n_agents // minibatch_size  # number of minibatches

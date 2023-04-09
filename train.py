@@ -19,10 +19,12 @@ parser.add_argument('--config', type=str, required=True, help='JSON file path')
 args = parser.parse_args()
 with open(args.config, 'r') as f:
     config = json.load(f)
-
 env_name = config["env_name"]
 SEED = config["SEED"]
 total_experience = int(config["total_experience"])
+
+
+
 lr_begin = config["lr_begin"]
 lr_end = config["lr_end"]
 n_agents = config["n_agents"]
@@ -32,12 +34,11 @@ minibatch_size = config["minibatch_size"]
 # minibatch_size = n_agents*horizon  # for 1 minibatch per epoch
 hidden_layer_sizes = tuple(config["hidden_layer_sizes"])
 normalize_advantages = config["normalize_advantages"]
-anneal = config["anneal"]
+anneal = config["anneal_epsilon"]
 clip_epsilon = config["clip_epsilon"]
 entropy_coeff = config["entropy_coeff"]
 val_loss_coeff = config["val_loss_coeff"]
 clip_grad = config["clip_grad"]
-permute_batches = config["permute_batches"]
 discount = config["discount"]
 gae_lambda = config["gae_lambda"]
 n_eval_agents = config["n_eval_agents"]
@@ -71,19 +72,14 @@ n_inner_iters = n_epochs * n_iters_per_epoch
 print("Minibatches per epoch:", n_iters_per_epoch)
 print("Outer steps:", n_outer_iters, '\n')
 
-if anneal:
-    lr = optax.linear_schedule(init_value=lr_begin, 
-                               end_value=lr_end, 
-                               transition_steps=n_outer_iters*n_inner_iters)
-else:
-    lr = lr_begin
-
+lr = optax.linear_schedule(init_value=lr_begin, 
+                           end_value=lr_end, 
+                           transition_steps=n_outer_iters*n_inner_iters)
 if clip_grad:
     optimizer = optax.chain(optax.clip_by_global_norm(max_norm=clip_grad), 
                             optax.adam(lr, eps=1e-5))
 else:
-    # optimizer = optax.adam(lr, eps=1e-5)
-    optimizer = optax.adam(lr)
+    optimizer = optax.adam(lr, eps=1e-5)
 
 key, *agents_subkeyReset = jax.random.split(key, n_agents+1)
 agents_subkeyReset = jnp.asarray(agents_subkeyReset)
@@ -138,8 +134,7 @@ for outer_iter in tqdm(range(n_outer_iters)):
                                                     val_loss_coeff,
                                                     entropy_coeff,
                                                     normalize_advantages,
-                                                    clip_epsilon*alpha,
-                                                    permute_batches)
+                                                    clip_epsilon*alpha)
                 
     new_experience = experience + (n_agents*horizon)
     wandb.log({"Losses/total": np.mean(minibatch_losses)}, new_experience)
@@ -150,6 +145,7 @@ for outer_iter in tqdm(range(n_outer_iters)):
     wandb.log({"Debug/approx_kl": np.mean(approx_kls)}, new_experience)
     wandb.log({"Debug/clip_epsilon": clip_epsilon*alpha}, new_experience)
 
+# One more eval
 _, key_eval = jax.random.split(key)
 returns = evaluate(env, key_eval, model_params, model, n_actions, n_eval_agents, eval_discount)
 avg_return, std_return = jnp.mean(returns), jnp.std(returns)
@@ -157,6 +153,7 @@ evals[new_experience, steps+1] = (avg_return, std_return)
 wandb.log({"Returns/avg": avg_return,
            "Returns/avg+std": avg_return + std_return,
            "Returns/avg-std": avg_return - std_return}, new_experience)
+
 
 print("\nReturns avg ± std:")
 for exp, steps in evals:
