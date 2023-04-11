@@ -12,7 +12,8 @@ import datetime
 from model import NN
 from learning import sample_batch, batch_epoch
 from test import evaluate
-
+from jax.config import config
+config.update("jax_enable_x64", True)  # to ensure vmap/non-vmap consistency
 
 parser = argparse.ArgumentParser()
 parser.add_argument('--config', type=str, required=True, help='JSON file path')
@@ -45,9 +46,9 @@ n_eval_agents = config["n_eval_agents"]
 eval_discount = config["eval_discount"]
 eval_iter = config["eval_iter"]
 assert minibatch_size <= n_agents*horizon
-wandb.init(project="ppo", 
-           config=config,
-           name=env_name+'-'+datetime.datetime.now().strftime("%d.%m-%H:%M"))
+# wandb.init(project="ppo", 
+#            config=config,
+#            name=env_name+'-'+datetime.datetime.now().strftime("%d.%m-%H:%M"))
 
 env, env_params = gymnax.make(env_name)
 vecEnv_reset = jax.vmap(env.reset, in_axes=(0,))
@@ -96,9 +97,9 @@ for outer_iter in tqdm(range(n_outer_iters)):
         returns = evaluate(env, key_eval, model_params, model, n_actions, n_eval_agents, eval_discount)
         avg_return, std_return = jnp.mean(returns), jnp.std(returns)
         evals[experience, steps] = (avg_return, std_return)
-        wandb.log({"Returns/avg": avg_return,
-                   "Returns/avg+std": avg_return + std_return,
-                   "Returns/avg-std": avg_return - std_return}, experience)
+        # wandb.log({"Returns/avg": avg_return,
+        #            "Returns/avg+std": avg_return + std_return,
+        #            "Returns/avg-std": avg_return - std_return}, experience)
         
     agents_stateFeature, agents_state, batch, key = sample_batch(agents_stateFeature,
                                                                  agents_state,
@@ -137,22 +138,22 @@ for outer_iter in tqdm(range(n_outer_iters)):
                                                     clip_epsilon*alpha)
                 
     new_experience = experience + (n_agents*horizon)
-    wandb.log({"Losses/total": np.mean(minibatch_losses)}, new_experience)
-    wandb.log({"Losses/ppo": np.mean(ppo_losses)}, new_experience)
-    wandb.log({"Losses/val": np.mean(val_losses)}, new_experience)
-    wandb.log({"Losses/ent": np.mean(ent_bonuses)}, new_experience)
-    wandb.log({"Debug/%clip_trig": 100*np.mean(clip_trigger_fracs)}, new_experience)
-    wandb.log({"Debug/approx_kl": np.mean(approx_kls)}, new_experience)
-    wandb.log({"Debug/clip_epsilon": clip_epsilon*alpha}, new_experience)
+    # wandb.log({"Losses/total": np.mean(minibatch_losses)}, new_experience)
+    # wandb.log({"Losses/ppo": np.mean(ppo_losses)}, new_experience)
+    # wandb.log({"Losses/val": np.mean(val_losses)}, new_experience)
+    # wandb.log({"Losses/ent": np.mean(ent_bonuses)}, new_experience)
+    # wandb.log({"Debug/%clip_trig": 100*np.mean(clip_trigger_fracs)}, new_experience)
+    # wandb.log({"Debug/approx_kl": np.mean(approx_kls)}, new_experience)
+    # wandb.log({"Debug/clip_epsilon": clip_epsilon*alpha}, new_experience)
 
 # One more eval
 _, key_eval = jax.random.split(key)
 returns = evaluate(env, key_eval, model_params, model, n_actions, n_eval_agents, eval_discount)
 avg_return, std_return = jnp.mean(returns), jnp.std(returns)
 evals[new_experience, steps+1] = (avg_return, std_return)
-wandb.log({"Returns/avg": avg_return,
-           "Returns/avg+std": avg_return + std_return,
-           "Returns/avg-std": avg_return - std_return}, new_experience)
+# wandb.log({"Returns/avg": avg_return,
+#            "Returns/avg+std": avg_return + std_return,
+#            "Returns/avg-std": avg_return - std_return}, new_experience)
 
 
 print("\nReturns avg ± std:")
@@ -161,7 +162,7 @@ for exp, steps in evals:
     print(f"(Exp {exp}, steps {steps}) --> {avg_return} ± {std_return}")
 print()
 
-wandb.finish()
+# wandb.finish()
 
 
 

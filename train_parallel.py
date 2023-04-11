@@ -9,7 +9,8 @@ from model import NN
 from learning import sample_batch, batch_epoch
 from test import evaluate
 from functools import partial
-
+from jax.config import config
+config.update("jax_enable_x64", True)  # to ensure vmap/non-vmap consistency
 
 parser = argparse.ArgumentParser()
 parser.add_argument('--config', type=str, required=True, help='JSON file path')
@@ -166,9 +167,10 @@ def train_once(key, clip_epsilon):
 if __name__ == "__main__":
     key = jax.random.PRNGKey(SEED)
 
-    _, _key = jax.random.split(key)
-    keys = jnp.array([key, _key])
-    es = jnp.array([0.2, 0.4, 0.6, 0.8])
+    # _, _key = jax.random.split(key)
+    keys = jnp.array([key, key])
+    
+    es = jnp.array([0.2, 0.7])
 
     result = train_once(keys, es)
     print(result["avg_returns"].shape)
