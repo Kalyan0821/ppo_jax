@@ -5,7 +5,8 @@ from functools import partial
 from flax.core.frozen_dict import FrozenDict
 from model import NN
 from typing import Callable
-
+from jax.config import config as cfg
+cfg.update("jax_enable_x64", True)  # to ensure vmap/non-vmap consistency
 
 def loss_function(model_params: FrozenDict,
                   minibatch: dict[str, jnp.array],

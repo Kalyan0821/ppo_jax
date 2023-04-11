@@ -2,15 +2,20 @@ import gymnax
 import jax
 import optax
 import jax.numpy as jnp
+import numpy as np
 from flax.training.checkpoints import save_checkpoint
 import argparse
 import json
-from model import NN
+from model import NN, SeparateNN
 from learning import sample_batch, batch_epoch
 from test import evaluate
 from functools import partial
-from jax.config import config
-config.update("jax_enable_x64", True)  # to ensure vmap/non-vmap consistency
+from collections import OrderedDict
+import wandb
+import datetime
+from jax.config import config as cfg
+cfg.update("jax_enable_x64", True)  # to ensure vmap/non-vmap consistency
+
 
 parser = argparse.ArgumentParser()
 parser.add_argument('--config', type=str, required=True, help='JSON file path')
@@ -20,6 +25,7 @@ with open(args.config, 'r') as f:
 
 env_name = config["env_name"]
 SEED = config["SEED"]
+N_SEEDS = config["N_SEEDS"]
 total_experience = int(config["total_experience"])
 n_agents = config["n_agents"]
 horizon = config["horizon"]
@@ -28,6 +34,8 @@ minibatch_size = config["minibatch_size"]
 # minibatch_size = n_agents*horizon  # for 1 minibatch per epoch
 assert minibatch_size <= n_agents*horizon
 hidden_layer_sizes = tuple(config["hidden_layer_sizes"])
+architecture = config["architecture"]
+activation = config["activation"]
 n_eval_agents = config["n_eval_agents"]
 eval_iter = config["eval_iter"]
 
@@ -37,10 +45,14 @@ vecEnv_step = jax.vmap(env.step, in_axes=(0, 0, 0))
 example_state_feature, _ = env.reset(jax.random.PRNGKey(0))
 n_actions = env.action_space().n
 
-model = NN(hidden_layer_sizes=hidden_layer_sizes, 
-           n_actions=n_actions, 
-           single_input_shape=example_state_feature.shape)
+n_outer_iters = total_experience // (n_agents * horizon)
+n_iters_per_epoch = n_agents*horizon // minibatch_size  # num_minibatches
+n_inner_iters = n_epochs * n_iters_per_epoch 
 
+print("\nState feature shape:", example_state_feature.shape)
+print("Action space:", n_actions)
+print("Minibatches per epoch:", n_iters_per_epoch)
+print("Outer steps:", n_outer_iters, '\n')
 
 ################# CAN VMAP OVER CHOICES OF: #################
 clip_epsilon = config["clip_epsilon"]
@@ -66,6 +78,17 @@ def train_once(key, clip_epsilon):
     """ To vmap over a hparam, include it as an argument and 
     modify the decorators appropriately """
 
+    if architecture == "shared":
+        model = NN(hidden_layer_sizes=hidden_layer_sizes, 
+                n_actions=n_actions, 
+                single_input_shape=example_state_feature.shape,
+                activation=activation)
+    elif architecture == "separate":
+        model = SeparateNN(hidden_layer_sizes=hidden_layer_sizes, 
+                        n_actions=n_actions, 
+                        single_input_shape=example_state_feature.shape,
+                        activation=activation)
+
     key, subkey_model = jax.random.split(key)
     model_params = model.init(subkey_model, jnp.zeros(example_state_feature.shape))
 
@@ -79,7 +102,7 @@ def train_once(key, clip_epsilon):
     
     max_norm = jnp.where(clip_grad > 0, clip_grad, jnp.inf).astype(jnp.float32)
     optimizer = optax.chain(optax.clip_by_global_norm(max_norm=max_norm), 
-                            optax.adam(lr, eps=1e-5))
+                            optax.adam(lr))
 
     key, *agents_subkeyReset = jax.random.split(key, n_agents+1)
     agents_subkeyReset = jnp.asarray(agents_subkeyReset)
@@ -165,24 +188,66 @@ def train_once(key, clip_epsilon):
     
 
 if __name__ == "__main__":
-    key = jax.random.PRNGKey(SEED)
+    key0 = jax.random.PRNGKey(SEED)
+    # keys = jnp.array([key0, *jax.random.split(key0, N_SEEDS-1)])
+    keys = jnp.array([key0, key0])
 
-    # _, _key = jax.random.split(key)
-    keys = jnp.array([key, key])
-    
-    es = jnp.array([0.2, 0.7])
+    # VMAP OVER:
+    hparams = OrderedDict({"keys": keys, 
+                           "clip": jnp.array([0.2, 0.5])
+                           })
+    hparam_names = list(hparams.keys())
+    assert hparam_names[0] == "keys"
 
-    result = train_once(keys, es)
-    print(result["avg_returns"].shape)
+    # Train:
+    result = train_once(*hparams.values())
+    print("Done. Result shape:", result["avg_returns"].shape, '\n')
 
-    print("\nReturns avg ± std:")
+    # Log to wandb:
+    wandb.init(project="ppo", 
+               config=config,
+               name=env_name+'-'+datetime.datetime.now().strftime("%d.%m-%H:%M"))
+    npmean = lambda x: np.mean(np.array(x))
+    npstd = lambda x: np.std(np.array(x))
 
-    for e in range(len(result["steps"][0])):
-        print("E:", es[e])
+    assert len(hparams) == 2
+    name = hparam_names[1]
+    vals = hparams[name]
+    for step in range(len(result["experiences"][0, 0, :]) - 1):
+        experience = result["experiences"][0, 0, step]
+        for j in range(len(result["experiences"][0, :])):
+            if result["std_returns"][0, 0, step] > -0.5:
+                avg_return = npmean(result["avg_returns"][:, j, step])
+                std_return = npstd(result["avg_returns"][:, j, step])
+                wandb.log({f"{name}={vals[j]}/Returns/avg": avg_return}, experience)
+                wandb.log({f"{name}={vals[j]}/Returns/std": std_return}, experience)
+                print(experience, avg_return, std_return)
 
-        for i in range(len(result["steps"][0, 0])):        
-            exp, step = result["experiences"][0, 0, i], result["steps"][0, 0, i]
-            if jnp.mean(result["std_returns"][:, e, i]) >= 0:
-                avg_return, std_return = result["avg_returns"][:, e, i], result["std_returns"][:, e, i]
-                print(f"(Exp {exp}, steps {step}) --> {avg_return} ± {std_return}")
-        print()
+        for j in range(len(result["experiences"][0, :])):
+            new_experience = experience + (n_agents*horizon)
+            wandb.log({f"{name}={vals[j]}/Losses/total": npmean(result["minibatch_losses"][:, j, step])}, new_experience)
+            wandb.log({f"{name}={vals[j]}/Losses/ppo": npmean(result["ppo_losses"][:, j, step])}, new_experience)
+            wandb.log({f"{name}={vals[j]}/Losses/val": npmean(result["val_losses"][:, j, step])}, new_experience)
+            wandb.log({f"{name}={vals[j]}/Losses/ent": npmean(result["ent_bonuses"][:, j, step])}, new_experience)
+            wandb.log({f"{name}={vals[j]}/Debug/%clip_trig": 100*npmean(result["clip_trigger_fracs"][:, j, step])}, new_experience)
+            wandb.log({f"{name}={vals[j]}/Debug/approx_kl": npmean(result["approx_kls"][:, j, step])}, new_experience)
+
+    assert result["std_returns"][0, 0, -1] > -0.5
+    for j in range(len(result["experiences"][0, :])):
+        avg_return = npmean(result["avg_returns"][:, j, -1])
+        std_return = npstd(result["avg_returns"][:, j, -1])
+        wandb.log({f"{name}={vals[j]}/Returns/avg": avg_return}, new_experience)
+        wandb.log({f"{name}={vals[j]}/Returns/std": std_return}, new_experience)
+        print(new_experience, avg_return, std_return)
+
+
+    # print("\nReturns avg ± std:")
+    # for e in range(len(result["steps"][0])):
+    #     print("E:", es[e])
+
+    #     for i in range(len(result["steps"][0, 0])):        
+    #         exp, step = result["experiences"][0, 0, i], result["steps"][0, 0, i]
+    #         if jnp.mean(result["std_returns"][:, e, i]) >= 0:
+    #             avg_return, std_return = result["avg_returns"][:, e, i], result["std_returns"][:, e, i]
+    #             print(f"(Exp {exp}, steps {step}) --> {avg_return} ± {std_return}")
+    #     print()

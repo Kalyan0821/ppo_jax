@@ -4,6 +4,8 @@ from functools import partial
 from gymnax.environments.environment import Environment
 from flax.core.frozen_dict import FrozenDict
 from model import NN
+from jax.config import config as cfg
+cfg.update("jax_enable_x64", True)  # to ensure vmap/non-vmap consistency
 
 
 @partial(jax.jit, static_argnums=(0, 3, 4))
