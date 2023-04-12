@@ -2,6 +2,7 @@
 "env_name": "Acrobot-v1",
 "SEED": 42,
 "N_SEEDS": 8,
+
 "total_experience": 500000,
 "lr_begin": 5e-4,
 "lr_end": 5e-4,

@@ -123,7 +123,9 @@ def train_once(key):
             return avg_return, std_return, key            
         def f_false(carry):
             return jnp.array(-1.0, dtype=jnp.float32), jnp.array(-1.0, dtype=jnp.float32), carry["key"]
-        
+            # return -1.0, -1.0, carry["key"]
+
+
         append_to = dict()
         append_to["steps"], append_to["experiences"] = idx, idx*n_agents*horizon
         append_to["avg_returns"], append_to["std_returns"], key = jax.lax.cond(idx % eval_iter == 0, f_true, f_false, carry)
