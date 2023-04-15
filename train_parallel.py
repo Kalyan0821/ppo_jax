@@ -75,7 +75,7 @@ eval_discount = config["eval_discount"]
 @partial(jax.vmap, in_axes=(0, None, None))
 @partial(jax.vmap, in_axes=(None, 0, None))
 @partial(jax.vmap, in_axes=(None, None, 0))
-def train_once(key, clip_epsilon, entropy_coeff):
+def train_once(key, entropy_coeff, clip_epsilon):
     """ To vmap over a hparam, include it as an argument and 
     modify the decorators appropriately """
 
@@ -194,117 +194,124 @@ if __name__ == "__main__":
     key0 = jax.random.PRNGKey(SEED)
     keys = jnp.array([key0, *jax.random.split(key0, N_SEEDS-1)])
 
-    # VMAP OVER:
+
+    ################# VMAP OVER: #################
     # hparams = OrderedDict({"keys": keys})
     # hparams = OrderedDict({"keys": keys, 
     #                        "clip": jnp.array([0.02, 0.1, 0.2, 0.6, 1e5])})
     hparams = OrderedDict({"keys": keys, 
-                           "clip": jnp.array([0.02, 0.1, 0.2, 0.6, 1e5]),
-                           "ent": jnp.array([0, 0.003, 0.01, 0.5])})
-    
+                           "ent": jnp.array([0, 0.003, 0.01, 0.5]),
+                           "clip": jnp.array([0.02, 0.1, 0.2, 0.6, 1e5])})
+    ##############################################
+    WANDB = False
+    SAVE_ARRAY = True
+
     hparam_names = list(hparams.keys())
     assert hparam_names[0] == "keys"
     # Train:
     result = train_once(*hparams.values())
     print("Done. Result shape:", result["avg_returns"].shape, '\n')
-
+    if SAVE_ARRAY:
+        with open(f"./plotting/{env_name}.npy", 'wb') as f:
+            save_indices = result["std_returns"][(0,)*len(hparams)] > -0.5
+            np.save(f, result["avg_returns"][..., save_indices])
 
     # Log to wandb:
-    wandb.init(project="ppo_baselines", 
-               config=config,
-               name=env_name+'-'+datetime.datetime.now().strftime("%d.%m-%H:%M"))
-    npmean = lambda x: np.mean(np.array(x))
-    npstd = lambda x: np.std(np.array(x))
+    if WANDB:
+        wandb.init(project="ppo_baselines", 
+                   config=config,
+                   name=env_name+'-'+datetime.datetime.now().strftime("%d.%m-%H:%M"))            
+        npmean = lambda x: np.mean(np.array(x))
+        npstd = lambda x: np.std(np.array(x))
+        if len(hparams) == 1:
+            for step in range(len(result["experiences"][0, :]) - 1):
+                experience = result["experiences"][0, step]
+                if result["std_returns"][0, step] > -0.5:
+                    avg_return = npmean(result["avg_returns"][:, step])
+                    std_return = npstd(result["avg_returns"][:, step])
+                    wandb.log({f"Returns/avg": avg_return}, experience)
+                    wandb.log({f"Returns/std": std_return}, experience)
+                    print(experience, avg_return, std_return)
 
-    if len(hparams) == 1:
-        for step in range(len(result["experiences"][0, :]) - 1):
-            experience = result["experiences"][0, step]
-            if result["std_returns"][0, step] > -0.5:
-                avg_return = npmean(result["avg_returns"][:, step])
-                std_return = npstd(result["avg_returns"][:, step])
-                wandb.log({f"Returns/avg": avg_return}, experience)
-                wandb.log({f"Returns/std": std_return}, experience)
-                print(experience, avg_return, std_return)
-
-            new_experience = experience + (n_agents*horizon)
-            wandb.log({f"Losses/total": npmean(result["minibatch_losses"][:, step])}, new_experience)
-            wandb.log({f"Losses/ppo": npmean(result["ppo_losses"][:, step])}, new_experience)
-            wandb.log({f"Losses/val": npmean(result["val_losses"][:, step])}, new_experience)
-            wandb.log({f"Losses/ent": npmean(result["ent_bonuses"][:, step])}, new_experience)
-            wandb.log({f"Debug/%clip_trig": 100*npmean(result["clip_trigger_fracs"][:, step])}, new_experience)
-            wandb.log({f"Debug/approx_kl": npmean(result["approx_kls"][:, step])}, new_experience)
-
-        assert result["std_returns"][0, -1] > -0.5
-        avg_return = npmean(result["avg_returns"][:, -1])
-        std_return = npstd(result["avg_returns"][:, -1])
-        wandb.log({f"Returns/avg": avg_return}, new_experience)
-        wandb.log({f"Returns/std": std_return}, new_experience)
-        print(new_experience, avg_return, std_return)
-
-    elif len(hparams) == 2:
-        name = hparam_names[1]
-        vals = hparams[name]
-        for step in range(len(result["experiences"][0, 0, :]) - 1):
-            experience = result["experiences"][0, 0, step]
-            if result["std_returns"][0, 0, step] > -0.5:
-                for j in range(len(result["experiences"][0, :])):
-                    avg_return = npmean(result["avg_returns"][:, j, step])
-                    std_return = npstd(result["avg_returns"][:, j, step])
-                    wandb.log({f"{name}={vals[j]}/Returns/avg": avg_return}, experience)
-                    wandb.log({f"{name}={vals[j]}/Returns/std": std_return}, experience)
-                    print(experience, f"({name}={vals[j]})", avg_return, std_return)
-                print()
-            for j in range(len(result["experiences"][0, :])):
                 new_experience = experience + (n_agents*horizon)
-                wandb.log({f"{name}={vals[j]}/Losses/total": npmean(result["minibatch_losses"][:, j, step])}, new_experience)
-                wandb.log({f"{name}={vals[j]}/Losses/ppo": npmean(result["ppo_losses"][:, j, step])}, new_experience)
-                wandb.log({f"{name}={vals[j]}/Losses/val": npmean(result["val_losses"][:, j, step])}, new_experience)
-                wandb.log({f"{name}={vals[j]}/Losses/ent": npmean(result["ent_bonuses"][:, j, step])}, new_experience)
-                wandb.log({f"{name}={vals[j]}/Debug/%clip_trig": 100*npmean(result["clip_trigger_fracs"][:, j, step])}, new_experience)
-                wandb.log({f"{name}={vals[j]}/Debug/approx_kl": npmean(result["approx_kls"][:, j, step])}, new_experience)
+                wandb.log({f"Losses/total": npmean(result["minibatch_losses"][:, step])}, new_experience)
+                wandb.log({f"Losses/ppo": npmean(result["ppo_losses"][:, step])}, new_experience)
+                wandb.log({f"Losses/val": npmean(result["val_losses"][:, step])}, new_experience)
+                wandb.log({f"Losses/ent": npmean(result["ent_bonuses"][:, step])}, new_experience)
+                wandb.log({f"Debug/%clip_trig": 100*npmean(result["clip_trigger_fracs"][:, step])}, new_experience)
+                wandb.log({f"Debug/approx_kl": npmean(result["approx_kls"][:, step])}, new_experience)
 
-        assert result["std_returns"][0, 0, -1] > -0.5
-        for j in range(len(result["experiences"][0, :])):
-            avg_return = npmean(result["avg_returns"][:, j, -1])
-            std_return = npstd(result["avg_returns"][:, j, -1])
-            wandb.log({f"{name}={vals[j]}/Returns/avg": avg_return}, new_experience)
-            wandb.log({f"{name}={vals[j]}/Returns/std": std_return}, new_experience)
-            print(new_experience, f"({name}={vals[j]})", avg_return, std_return)
-    
-    elif len(hparams) == 3:
-        name1, name2 = hparam_names[1], hparam_names[2]
-        vals1, vals2 = hparams[name1], hparams[name2]
+            assert result["std_returns"][0, -1] > -0.5
+            avg_return = npmean(result["avg_returns"][:, -1])
+            std_return = npstd(result["avg_returns"][:, -1])
+            wandb.log({f"Returns/avg": avg_return}, new_experience)
+            wandb.log({f"Returns/std": std_return}, new_experience)
+            print(new_experience, avg_return, std_return)
 
-        for step in range(len(result["experiences"][0, 0, 0, :]) - 1):
-            experience = result["experiences"][0, 0, 0, step]
-            if result["std_returns"][0, 0, 0, step] > -0.5:
+        elif len(hparams) == 2:
+            name = hparam_names[1]
+            vals = hparams[name]
+            for step in range(len(result["experiences"][0, 0, :]) - 1):
+                experience = result["experiences"][0, 0, step]
+                if result["std_returns"][0, 0, step] > -0.5:
+                    for j in range(len(result["experiences"][0, :])):
+                        avg_return = npmean(result["avg_returns"][:, j, step])
+                        std_return = npstd(result["avg_returns"][:, j, step])
+                        wandb.log({f"{name}={vals[j]}/Returns/avg": avg_return}, experience)
+                        wandb.log({f"{name}={vals[j]}/Returns/std": std_return}, experience)
+                        print(experience, f"({name}={vals[j]})", avg_return, std_return)
+                    print()
+                for j in range(len(result["experiences"][0, :])):
+                    new_experience = experience + (n_agents*horizon)
+                    wandb.log({f"{name}={vals[j]}/Losses/total": npmean(result["minibatch_losses"][:, j, step])}, new_experience)
+                    wandb.log({f"{name}={vals[j]}/Losses/ppo": npmean(result["ppo_losses"][:, j, step])}, new_experience)
+                    wandb.log({f"{name}={vals[j]}/Losses/val": npmean(result["val_losses"][:, j, step])}, new_experience)
+                    wandb.log({f"{name}={vals[j]}/Losses/ent": npmean(result["ent_bonuses"][:, j, step])}, new_experience)
+                    wandb.log({f"{name}={vals[j]}/Debug/%clip_trig": 100*npmean(result["clip_trigger_fracs"][:, j, step])}, new_experience)
+                    wandb.log({f"{name}={vals[j]}/Debug/approx_kl": npmean(result["approx_kls"][:, j, step])}, new_experience)
+
+            assert result["std_returns"][0, 0, -1] > -0.5
+            for j in range(len(result["experiences"][0, :])):
+                avg_return = npmean(result["avg_returns"][:, j, -1])
+                std_return = npstd(result["avg_returns"][:, j, -1])
+                wandb.log({f"{name}={vals[j]}/Returns/avg": avg_return}, new_experience)
+                wandb.log({f"{name}={vals[j]}/Returns/std": std_return}, new_experience)
+                print(new_experience, f"({name}={vals[j]})", avg_return, std_return)
+        
+        elif len(hparams) == 3:
+            name1, name2 = hparam_names[1], hparam_names[2]
+            vals1, vals2 = hparams[name1], hparams[name2]
+
+            for step in range(len(result["experiences"][0, 0, 0, :]) - 1):
+                experience = result["experiences"][0, 0, 0, step]
+                if result["std_returns"][0, 0, 0, step] > -0.5:
+                    for j in range(len(result["experiences"][0, :])):
+                        for k in range(len(result["experiences"][0, 0, :])):
+                            avg_return = npmean(result["avg_returns"][:, j, k, step])
+                            std_return = npstd(result["avg_returns"][:, j, k, step])
+                            wandb.log({f"{name1}={vals1[j]}_{name2}={vals2[k]}/Returns/avg": avg_return}, experience)
+                            wandb.log({f"{name1}={vals1[j]}_{name2}={vals2[k]}/Returns/std": std_return}, experience)
+                            print(experience, f"({name1}={vals1[j]}_{name2}={vals2[k]})", avg_return, std_return)
+                    print()
                 for j in range(len(result["experiences"][0, :])):
                     for k in range(len(result["experiences"][0, 0, :])):
-                        avg_return = npmean(result["avg_returns"][:, j, k, step])
-                        std_return = npstd(result["avg_returns"][:, j, k, step])
-                        wandb.log({f"{name1}={vals1[j]}_{name2}={vals2[k]}/Returns/avg": avg_return}, experience)
-                        wandb.log({f"{name1}={vals1[j]}_{name2}={vals2[k]}/Returns/std": std_return}, experience)
-                        print(experience, f"({name1}={vals1[j]}_{name2}={vals2[k]})", avg_return, std_return)
-                print()
+                        new_experience = experience + (n_agents*horizon)
+                        wandb.log({f"{name1}={vals1[j]}_{name2}={vals2[k]}/Losses/total": npmean(result["minibatch_losses"][:, j, k, step])}, new_experience)
+                        wandb.log({f"{name1}={vals1[j]}_{name2}={vals2[k]}/Losses/ppo": npmean(result["ppo_losses"][:, j, k, step])}, new_experience)
+                        wandb.log({f"{name1}={vals1[j]}_{name2}={vals2[k]}/Losses/val": npmean(result["val_losses"][:, j, k, step])}, new_experience)
+                        wandb.log({f"{name1}={vals1[j]}_{name2}={vals2[k]}/Losses/ent": npmean(result["ent_bonuses"][:, j, k, step])}, new_experience)
+                        wandb.log({f"{name1}={vals1[j]}_{name2}={vals2[k]}/Debug/%clip_trig": 100*npmean(result["clip_trigger_fracs"][:, j, k, step])}, new_experience)
+                        wandb.log({f"{name1}={vals1[j]}_{name2}={vals2[k]}/Debug/approx_kl": npmean(result["approx_kls"][:, j, k, step])}, new_experience)
+
+            assert result["std_returns"][0, 0, 0, -1] > -0.5
             for j in range(len(result["experiences"][0, :])):
                 for k in range(len(result["experiences"][0, 0, :])):
-                    new_experience = experience + (n_agents*horizon)
-                    wandb.log({f"{name1}={vals1[j]}_{name2}={vals2[k]}/Losses/total": npmean(result["minibatch_losses"][:, j, k, step])}, new_experience)
-                    wandb.log({f"{name1}={vals1[j]}_{name2}={vals2[k]}/Losses/ppo": npmean(result["ppo_losses"][:, j, k, step])}, new_experience)
-                    wandb.log({f"{name1}={vals1[j]}_{name2}={vals2[k]}/Losses/val": npmean(result["val_losses"][:, j, k, step])}, new_experience)
-                    wandb.log({f"{name1}={vals1[j]}_{name2}={vals2[k]}/Losses/ent": npmean(result["ent_bonuses"][:, j, k, step])}, new_experience)
-                    wandb.log({f"{name1}={vals1[j]}_{name2}={vals2[k]}/Debug/%clip_trig": 100*npmean(result["clip_trigger_fracs"][:, j, k, step])}, new_experience)
-                    wandb.log({f"{name1}={vals1[j]}_{name2}={vals2[k]}/Debug/approx_kl": npmean(result["approx_kls"][:, j, k, step])}, new_experience)
+                    avg_return = npmean(result["avg_returns"][:, j, k, -1])
+                    std_return = npstd(result["avg_returns"][:, j, k, -1])
+                    wandb.log({f"{name1}={vals1[j]}_{name2}={vals2[k]}/Returns/avg": avg_return}, new_experience)
+                    wandb.log({f"{name1}={vals1[j]}_{name2}={vals2[k]}/Returns/std": std_return}, new_experience)
+                    print(new_experience, f"({name1}={vals1[j]}_{name2}={vals2[k]})", avg_return, std_return)
 
-        assert result["std_returns"][0, 0, 0, -1] > -0.5
-        for j in range(len(result["experiences"][0, :])):
-            for k in range(len(result["experiences"][0, 0, :])):
-                avg_return = npmean(result["avg_returns"][:, j, k, -1])
-                std_return = npstd(result["avg_returns"][:, j, k, -1])
-                wandb.log({f"{name1}={vals1[j]}_{name2}={vals2[k]}/Returns/avg": avg_return}, new_experience)
-                wandb.log({f"{name1}={vals1[j]}_{name2}={vals2[k]}/Returns/std": std_return}, new_experience)
-                print(new_experience, f"({name1}={vals1[j]}_{name2}={vals2[k]})", avg_return, std_return)
-
-    else:
-        raise NotImplementedError
+        else:
+            raise NotImplementedError
 
