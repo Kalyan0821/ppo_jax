@@ -198,23 +198,28 @@ if __name__ == "__main__":
     ################# VMAP OVER: #################
     # hparams = OrderedDict({"keys": keys})
     # hparams = OrderedDict({"keys": keys, 
-    #                        "clip": jnp.array([0.02, 0.1, 0.2, 0.6, 1e5])})
+    #                        "clip": jnp.array([1e6, 0.8, 0.5, 0.2, 0.02])})
     hparams = OrderedDict({"keys": keys, 
-                           "ent": jnp.array([0, 0.003, 0.01, 0.5]),
-                           "clip": jnp.array([0.02, 0.1, 0.2, 0.6, 1e5])})
+                           "ent": jnp.array( [0, 0.01, 0.1, 0.4] ),
+                           "clip": jnp.array( [0.02, 0.2, 0.5, 0.8, 1e6] )})
     ##############################################
     WANDB = False
     SAVE_ARRAY = True
 
     hparam_names = list(hparams.keys())
     assert hparam_names[0] == "keys"
+    
     # Train:
     result = train_once(*hparams.values())
     print("Done. Result shape:", result["avg_returns"].shape, '\n')
-    if SAVE_ARRAY:
+
+    # Save for plotting
+    if SAVE_ARRAY and len(hparams) == 3:
+        save_indices = result["std_returns"][(0,)*len(hparams)] > -0.5
         with open(f"./plotting/{env_name}.npy", 'wb') as f:
-            save_indices = result["std_returns"][(0,)*len(hparams)] > -0.5
             np.save(f, result["avg_returns"][..., save_indices])
+        with open(f"./plotting/{env_name}_exps.npy", 'wb') as f:
+            np.save(f, result["experiences"][(0,)*len(hparams)+(save_indices,)])
 
     # Log to wandb:
     if WANDB:
