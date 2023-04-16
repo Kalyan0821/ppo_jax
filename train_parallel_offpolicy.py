@@ -7,7 +7,7 @@ from flax.training.checkpoints import save_checkpoint
 import argparse
 import json
 from model import NN, SeparateNN
-from learning import sample_batch, batch_epoch
+from learning_offpolicy import sample_batch, batch_epoch
 from test import evaluate
 from functools import partial
 from collections import OrderedDict
@@ -69,15 +69,15 @@ eval_discount = config["eval_discount"]
 #############################################################
 
 @jax.jit
-# @partial(jax.vmap, in_axes=(0,))
-# def train_once(key):
+@partial(jax.vmap, in_axes=(0,))
+def train_once(key):
 # @partial(jax.vmap, in_axes=(0, None))
 # @partial(jax.vmap, in_axes=(None, 0))
 # def train_once(key, clip_epsilon):
-@partial(jax.vmap, in_axes=(0, None, None))
-@partial(jax.vmap, in_axes=(None, 0, None))
-@partial(jax.vmap, in_axes=(None, None, 0))
-def train_once(key, entropy_coeff, clip_epsilon):
+# @partial(jax.vmap, in_axes=(0, None, None))
+# @partial(jax.vmap, in_axes=(None, 0, None))
+# @partial(jax.vmap, in_axes=(None, None, 0))
+# def train_once(key, entropy_coeff, clip_epsilon):
     """ To vmap over a hparam, include it as an argument and 
     modify the decorators appropriately """
 
@@ -124,8 +124,8 @@ def train_once(key, entropy_coeff, clip_epsilon):
             avg_return, std_return = jnp.mean(returns), jnp.std(returns)
             return avg_return, std_return, key            
         def f_false(carry):
-            return jnp.array(-1.0, dtype=jnp.float32), jnp.array(-1.0, dtype=jnp.float32), carry["key"]
-            # return -1.0, -1.0, carry["key"]
+            # return jnp.array(-1.0, dtype=jnp.float32), jnp.array(-1.0, dtype=jnp.float32), carry["key"]
+            return -1.0, -1.0, carry["key"]
 
 
         append_to = dict()
@@ -198,16 +198,15 @@ if __name__ == "__main__":
 
 
     ################# VMAP OVER: #################
-    # hparams = OrderedDict({"keys": keys})
+    hparams = OrderedDict({"keys": keys})
+    # hparams = OrderedDict({"keys": keys, 
+    #                        "clip": jnp.array([1e6, 0.8, 0.5, 0.2, 0.02])})
     # hparams = OrderedDict({"keys": keys, 
     #                        "ent": jnp.array( [0.0, 0.01, 0.1, 0.5] ),
     #                        "clip": jnp.array( [0.02, 0.08, 0.2, 0.5, 0.8, 1e6] )})
-    hparams = OrderedDict({"keys": keys, 
-                           "ent": jnp.array( [0.01] ),
-                           "clip": jnp.array( [0.02, 0.08, 0.2, 0.5, 0.8, 1e6] )})
     ##############################################
-    WANDB = False
-    SAVE_ARRAY = True
+    WANDB = True
+    SAVE_ARRAY = False
 
     hparam_names = list(hparams.keys())
     assert hparam_names[0] == "keys"
@@ -226,7 +225,7 @@ if __name__ == "__main__":
 
     # Log to wandb:
     if WANDB:
-        wandb.init(project="ppo_baselines", 
+        wandb.init(project="ppo_offpolicy", 
                    config=config,
                    name=env_name+'-'+datetime.datetime.now().strftime("%d.%m-%H:%M"))            
         npmean = lambda x: np.mean(np.array(x))
