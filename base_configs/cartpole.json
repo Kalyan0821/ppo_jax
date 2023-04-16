@@ -20,7 +20,7 @@
 "clip_grad": 0.5,
 "gae_lambda": 0.95,
 "anneal_epsilon": false,
-"normalize_advantages": true,
+"normalize_advantages": false,
 
 "discount": 0.99,
 "eval_discount": 1.0,
