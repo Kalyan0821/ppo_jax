@@ -124,8 +124,8 @@ def train_once(key, entropy_coeff, clip_epsilon):
             avg_return, std_return = jnp.mean(returns), jnp.std(returns)
             return avg_return, std_return, key            
         def f_false(carry):
-            return jnp.array(-1.0, dtype=jnp.float32), jnp.array(-1.0, dtype=jnp.float32), carry["key"]
-            # return -1.0, -1.0, carry["key"]
+            # return jnp.array(-1.0, dtype=jnp.float32), jnp.array(-1.0, dtype=jnp.float32), carry["key"]
+            return -1.0, -1.0, carry["key"]
 
 
         append_to = dict()
@@ -199,12 +199,12 @@ if __name__ == "__main__":
 
     ################# VMAP OVER: #################
     # hparams = OrderedDict({"keys": keys})
-    # hparams = OrderedDict({"keys": keys, 
-    #                        "ent": jnp.array( [0.0, 0.01, 0.1, 0.5] ),
-    #                        "clip": jnp.array( [0.02, 0.08, 0.2, 0.5, 0.8, 1e6] )})
     hparams = OrderedDict({"keys": keys, 
-                           "ent": jnp.array( [0.01] ),
+                           "ent": jnp.array( [0.0, 0.01, 0.1, 0.5] ),
                            "clip": jnp.array( [0.02, 0.08, 0.2, 0.5, 0.8, 1e6] )})
+    # hparams = OrderedDict({"keys": keys, 
+    #                        "ent": jnp.array( [0.01] ),
+    #                        "clip": jnp.array( [0.02, 0.08, 0.2, 0.5, 0.8, 1e6] )})
     ##############################################
     WANDB = False
     SAVE_ARRAY = True
