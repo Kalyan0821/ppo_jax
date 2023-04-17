@@ -123,8 +123,8 @@ def train_once(key, offpolicy_alpha, clip_epsilon):
             avg_return, std_return = jnp.mean(returns), jnp.std(returns)
             return avg_return, std_return, key            
         def f_false(carry):
-            # return jnp.array(-1.0, dtype=jnp.float32), jnp.array(-1.0, dtype=jnp.float32), carry["key"]
-            return -1.0, -1.0, carry["key"]
+            return jnp.array(-1.0, dtype=jnp.float32), jnp.array(-1.0, dtype=jnp.float32), carry["key"]
+            # return -1.0, -1.0, carry["key"]
 
 
         append_to = dict()
@@ -201,8 +201,11 @@ if __name__ == "__main__":
 
     ################# VMAP OVER: #################
     # hparams = OrderedDict({"keys": keys})
+    # hparams = OrderedDict({"keys": keys, 
+    #                        "alpha": jnp.array( [0.4, 0.5, 0.7, 1.0] ),
+    #                        "clip": jnp.array( [0.008, 0.02, 0.08, 0.2, 0.5, 1e6] )})
     hparams = OrderedDict({"keys": keys, 
-                           "alpha": jnp.array( [0.4, 0.5, 0.7, 1.0] ),
+                           "alpha": jnp.array( [0.85, 0.9, 0.95, 1.0] ),
                            "clip": jnp.array( [0.008, 0.02, 0.08, 0.2, 0.5, 1e6] )})
     ##############################################
     WANDB = False
