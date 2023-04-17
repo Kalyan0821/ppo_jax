@@ -3,5 +3,5 @@ To train:
 python train.py --config ./base_configs/config.json
 
 To train with multiple hparams in parallel:
-python train_parallel.py --config ./base_configs/config.json
+python train_vmap.py --config ./base_configs/config.json
 
