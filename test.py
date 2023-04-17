@@ -95,7 +95,7 @@ class TestablePerturbedModel(nn.Module):
     
 
 if __name__ == "__main__":
-    from train_parallel_offpolicy import env_name, SEED, N_SEEDS, hidden_layer_sizes, architecture, activation, n_eval_agents, env, example_state_feature, n_actions, eval_discount, offpolicy_alpha
+    from train_vmap_offpolicy import env_name, SEED, N_SEEDS, hidden_layer_sizes, architecture, activation, n_eval_agents, env, example_state_feature, n_actions, eval_discount, offpolicy_alpha
     key0 = jax.random.PRNGKey(SEED)
     keys = jnp.array([key0, *jax.random.split(key0, N_SEEDS-1)])
 

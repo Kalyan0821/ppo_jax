@@ -73,12 +73,12 @@ eval_discount = config["eval_discount"]
 #############################################################
 
 @jax.jit
-@partial(jax.vmap, in_axes=(0,))
-def train_once(key):
-# @partial(jax.vmap, in_axes=(0, None, None))
-# @partial(jax.vmap, in_axes=(None, 0, None))
-# @partial(jax.vmap, in_axes=(None, None, 0))
-# def train_once(key, offpolicy_alpha, clip_epsilon):
+# @partial(jax.vmap, in_axes=(0,))
+# def train_once(key):
+@partial(jax.vmap, in_axes=(0, None, None))
+@partial(jax.vmap, in_axes=(None, 0, None))
+@partial(jax.vmap, in_axes=(None, None, 0))
+def train_once(key, offpolicy_alpha, clip_epsilon):
     """ To vmap over a hparam, include it as an argument and 
     modify the decorators appropriately """
 
@@ -200,16 +200,19 @@ if __name__ == "__main__":
 
 
     ################# VMAP OVER: #################
-    hparams = OrderedDict({"keys": keys})
+    # hparams = OrderedDict({"keys": keys})
     # hparams = OrderedDict({"keys": keys, 
     #                        "alpha": jnp.array( [0.4, 0.5, 0.7, 1.0] ),
     #                        "clip": jnp.array( [0.008, 0.02, 0.08, 0.2, 0.5, 1e6] )})
     # hparams = OrderedDict({"keys": keys, 
     #                        "alpha": jnp.array( [0.85, 0.9, 0.95, 1.0] ),
     #                        "clip": jnp.array( [0.008, 0.02, 0.08, 0.2, 0.5, 1e6] )})
+    hparams = OrderedDict({"keys": keys, 
+                           "alpha": jnp.array( [0.9, 0.95, 1.0] ),
+                           "clip": jnp.array( [0.008, 0.02, 0.08, 0.2, 0.5, 1e6] )})
     ##############################################
-    WANDB = True
-    SAVE_ARRAY = False
+    WANDB = False
+    SAVE_ARRAY = True
 
     hparam_names = list(hparams.keys())
     assert hparam_names[0] == "keys"

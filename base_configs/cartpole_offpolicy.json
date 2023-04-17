@@ -15,7 +15,7 @@
 "activation": "relu",
 
 "offpolicy_alpha": 0.4,
-"clip_epsilon": 0.04,
+"clip_epsilon": 0.02,
 "entropy_coeff": 0,
 "val_loss_coeff": 0.05,
 
