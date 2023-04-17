@@ -3,7 +3,6 @@ import jax
 import optax
 import jax.numpy as jnp
 import numpy as np
-from flax.training.checkpoints import save_checkpoint
 import argparse
 import json
 from model import NN, SeparateNN

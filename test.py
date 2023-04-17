@@ -3,7 +3,10 @@ import jax.numpy as jnp
 from functools import partial
 from gymnax.environments.environment import Environment
 from flax.core.frozen_dict import FrozenDict
-from model import NN
+from flax.training.checkpoints import restore_checkpoint
+import numpy as np
+import flax.linen as nn
+from model import NN, SeparateNN, PerturbedModel
 from jax.config import config as cfg
 cfg.update("jax_enable_x64", True)  # to ensure vmap/non-vmap consistency
 
@@ -66,3 +69,32 @@ def evaluate(env: Environment,
                           discount)
     assert returns.shape == (n_eval_agents,)
     return returns
+
+
+if __name__ == "__main__":
+    from train_parallel import env_name, SEED, total_experience, hidden_layer_sizes, architecture, activation, n_eval_agents, env, example_state_feature, n_actions, eval_discount
+    key0 = jax.random.PRNGKey(SEED)
+
+    # ALPHA = 1.0
+    # ALPHA = 0.0
+    ALPHA = 0.7
+
+    if architecture == "shared":
+        model = NN(hidden_layer_sizes=hidden_layer_sizes, 
+                n_actions=n_actions, 
+                single_input_shape=example_state_feature.shape,
+                activation=activation)
+    elif architecture == "separate":
+        model = SeparateNN(hidden_layer_sizes=hidden_layer_sizes, 
+                        n_actions=n_actions, 
+                        single_input_shape=example_state_feature.shape,
+                        activation=activation)
+
+    model_params = restore_checkpoint("./saved_models", None, total_experience, prefix=env_name+'_')
+    perturbed_model = PerturbedModel(model, alpha=ALPHA)
+    print(perturbed_model, '\n')
+
+    returns = evaluate(env, key0, model_params, perturbed_model, n_actions, n_eval_agents, eval_discount)
+    avg_return, std_return = np.mean(returns), np.std(returns)
+    print(f"Returns avg ± std: {avg_return} ± {std_return}")
+    

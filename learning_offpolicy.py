@@ -197,13 +197,14 @@ def behaviour_policy(x, n_actions):
     return jnp.log(probs)
 
 
-@partial(jax.jit, static_argnums=(2, 5, 6, 7, 8))
+@partial(jax.jit, static_argnums=(2, 5, 6, 7, 8, 9))
 def sample_batch(agents_stateFeature: jnp.array,
                  agents_state: jnp.array,
                  vecEnv_step: Callable,
                  key: jax.random.PRNGKey,
                  model_params: FrozenDict,
                  model: NN,
+                 behaviour_model,
                  n_actions: int,
                  horizon: int,
                  n_agents: int,
@@ -219,7 +220,9 @@ def sample_batch(agents_stateFeature: jnp.array,
         agents_value = jnp.squeeze(agents_value, axis=-1)  # (n_agents,)
         assert agents_logProbs.shape == (n_agents, n_actions)
 
-        behaviours_logProbs = behaviour_policy(carry["agents_stateFeature"], n_actions)
+        # behaviours_logProbs = behaviour_policy(carry["agents_stateFeature"], n_actions)
+        behaviours_logProbs, _ = behaviour_model.apply(model_params, carry["agents_stateFeature"])
+
         behaviours_probs = jnp.exp(behaviours_logProbs)
         assert behaviours_probs.shape == (n_agents, n_actions)
 

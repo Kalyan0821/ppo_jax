@@ -67,13 +67,19 @@ discount = config["discount"]
 eval_discount = config["eval_discount"]
 #############################################################
 
-key = jax.random.PRNGKey(SEED)
+WANDB = False
+SAVE_MODEL = True
 
-wandb.init(project="ppo", 
-           config=config,
-           name=env_name+'-'+datetime.datetime.now().strftime("%d.%m-%H:%M"))
+if WANDB:
+    wandb.init(project="ppo", 
+               config=config,
+               name=env_name+'-'+datetime.datetime.now().strftime("%d.%m-%H:%M"))
+wandblog = lambda d, s: wandb.log(d, s) if WANDB else None
 npmean = lambda x: np.mean(np.array(x))
 npstd = lambda x: np.std(np.array(x))
+
+
+key = jax.random.PRNGKey(SEED)
 
 if architecture == "shared":
     model = NN(hidden_layer_sizes=hidden_layer_sizes, 
@@ -113,8 +119,8 @@ for outer_iter in tqdm(range(n_outer_iters)):
         returns = evaluate(env, key_eval, model_params, model, n_actions, n_eval_agents, eval_discount)
         avg_return, std_return = npmean(returns), npstd(returns)
         evals[experience, steps] = (avg_return, std_return)
-        wandb.log({"Returns/avg": avg_return}, experience)
-        wandb.log({"Returns/std": std_return}, experience)
+        wandblog({"Returns/avg": avg_return}, experience)
+        wandblog({"Returns/std": std_return}, experience)
         
     agents_stateFeature, agents_state, batch, key = sample_batch(agents_stateFeature,
                                                                  agents_state,
@@ -153,21 +159,20 @@ for outer_iter in tqdm(range(n_outer_iters)):
                                                     clip_epsilon*alpha)
                 
     new_experience = experience + (n_agents*horizon)
-    wandb.log({"Losses/total": npmean(minibatch_losses)}, new_experience)
-    wandb.log({"Losses/ppo": npmean(ppo_losses)}, new_experience)
-    wandb.log({"Losses/val": npmean(val_losses)}, new_experience)
-    wandb.log({"Losses/ent": npmean(ent_bonuses)}, new_experience)
-    wandb.log({"Debug/%clip_trig": 100*npmean(clip_trigger_fracs)}, new_experience)
-    wandb.log({"Debug/approx_kl": npmean(approx_kls)}, new_experience)
+    wandblog({"Losses/total": npmean(minibatch_losses)}, new_experience)
+    wandblog({"Losses/ppo": npmean(ppo_losses)}, new_experience)
+    wandblog({"Losses/val": npmean(val_losses)}, new_experience)
+    wandblog({"Losses/ent": npmean(ent_bonuses)}, new_experience)
+    wandblog({"Debug/%clip_trig": 100*npmean(clip_trigger_fracs)}, new_experience)
+    wandblog({"Debug/approx_kl": npmean(approx_kls)}, new_experience)
 
 # One more eval
 _, key_eval = jax.random.split(key)
 returns = evaluate(env, key_eval, model_params, model, n_actions, n_eval_agents, eval_discount)
 avg_return, std_return = npmean(returns), npstd(returns)
 evals[new_experience, steps+1] = (avg_return, std_return)
-wandb.log({"Returns/avg": avg_return}, new_experience)
-wandb.log({"Returns/std": std_return}, new_experience)
-
+wandblog({"Returns/avg": avg_return}, new_experience)
+wandblog({"Returns/std": std_return}, new_experience)
 
 print("\nReturns avg ± std:")
 for exp, steps in evals:
@@ -175,7 +180,5 @@ for exp, steps in evals:
     print(f"(Exp {exp}, steps {steps}) --> {avg_return} ± {std_return}")
 print()
 
-wandb.finish()
-
-
-
+if SAVE_MODEL:
+    save_checkpoint("./saved_models", model_params, total_experience, prefix=env_name+'_', overwrite=True)

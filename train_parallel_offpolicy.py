@@ -3,10 +3,9 @@ import jax
 import optax
 import jax.numpy as jnp
 import numpy as np
-from flax.training.checkpoints import save_checkpoint
 import argparse
 import json
-from model import NN, SeparateNN
+from model import NN, SeparateNN, PerturbedModel
 from learning_offpolicy import sample_batch, batch_epoch
 from test import evaluate
 from functools import partial
@@ -92,6 +91,10 @@ def train_once(key):
                         single_input_shape=example_state_feature.shape,
                         activation=activation)
 
+
+    behaviour_model = PerturbedModel(model, alpha=config["offpolicy_alpha"])
+
+
     key, subkey_model = jax.random.split(key)
     model_params = model.init(subkey_model, jnp.zeros(example_state_feature.shape))
 
@@ -138,6 +141,7 @@ def train_once(key):
                                                                     key,
                                                                     carry["model_params"], 
                                                                     model,
+                                                                    behaviour_model,
                                                                     n_actions,
                                                                     horizon,
                                                                     n_agents,
