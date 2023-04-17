@@ -112,22 +112,3 @@ class PerturbedModel(nn.Module):
         new_log_probs = jnp.log(new_probs)
 
         return new_log_probs, None
-    
-
-class TestablePerturbedModel(nn.Module):
-    model: NN
-    alpha: float
-    
-    def apply(self, model_params: FrozenDict, x: jnp.array):
-        assert 0 <= self.alpha <= 1
-
-        log_probs, _ = self.model.apply(model_params, x)
-        probs = jnp.exp(log_probs)
-        assert probs.shape[-1] == self.model.n_actions
-
-        uniform_probs = jnp.ones(probs.shape) / self.model.n_actions
-
-        new_probs = self.alpha*probs + (1-self.alpha)*uniform_probs
-        new_log_probs = jnp.log(new_probs)
-
-        return new_log_probs, None

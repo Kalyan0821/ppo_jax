@@ -91,10 +91,6 @@ def train_once(key, entropy_coeff, clip_epsilon):
     key, subkey_model = jax.random.split(key)
     model_params = model.init(subkey_model, jnp.zeros(example_state_feature.shape))
 
-    n_outer_iters = total_experience // (n_agents * horizon)
-    n_iters_per_epoch = n_agents*horizon // minibatch_size  # num_minibatches
-    n_inner_iters = n_epochs * n_iters_per_epoch 
-
     lr = optax.linear_schedule(init_value=lr_begin, 
                                end_value=lr_end, 
                                transition_steps=n_outer_iters*n_inner_iters)

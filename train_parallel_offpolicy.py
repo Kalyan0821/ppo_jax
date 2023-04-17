@@ -73,12 +73,12 @@ eval_discount = config["eval_discount"]
 #############################################################
 
 @jax.jit
-@partial(jax.vmap, in_axes=(0,))
-def train_once(key):
-# @partial(jax.vmap, in_axes=(0, None, None))
-# @partial(jax.vmap, in_axes=(None, 0, None))
-# @partial(jax.vmap, in_axes=(None, None, 0))
-# def train_once(key, offpolicy_alpha, clip_epsilon):
+# @partial(jax.vmap, in_axes=(0,))
+# def train_once(key):
+@partial(jax.vmap, in_axes=(0, None, None))
+@partial(jax.vmap, in_axes=(None, 0, None))
+@partial(jax.vmap, in_axes=(None, None, 0))
+def train_once(key, offpolicy_alpha, clip_epsilon):
     """ To vmap over a hparam, include it as an argument and 
     modify the decorators appropriately """
 
@@ -97,10 +97,6 @@ def train_once(key):
 
     key, subkey_model = jax.random.split(key)
     model_params = model.init(subkey_model, jnp.zeros(example_state_feature.shape))
-
-    n_outer_iters = total_experience // (n_agents * horizon)
-    n_iters_per_epoch = n_agents*horizon // minibatch_size  # num_minibatches
-    n_inner_iters = n_epochs * n_iters_per_epoch 
 
     lr = optax.linear_schedule(init_value=lr_begin, 
                                end_value=lr_end, 
@@ -204,12 +200,12 @@ if __name__ == "__main__":
 
 
     ################# VMAP OVER: #################
-    hparams = OrderedDict({"keys": keys})
-    # hparams = OrderedDict({"keys": keys, 
-    #                        "alpha": jnp.array( [0.0, 0.5, 0.75, 1.0] ),
-    #                        "clip": jnp.array( [0.008, 0.02, 0.08, 0.2, 0.5, 1e6] )})
+    # hparams = OrderedDict({"keys": keys})
+    hparams = OrderedDict({"keys": keys, 
+                           "alpha": jnp.array( [0.4, 0.5, 0.7, 1.0] ),
+                           "clip": jnp.array( [0.008, 0.02, 0.08, 0.2, 0.5, 1e6] )})
     ##############################################
-    WANDB = True
+    WANDB = False
     SAVE_ARRAY = True
 
     hparam_names = list(hparams.keys())

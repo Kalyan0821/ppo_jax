@@ -48,26 +48,30 @@ def full_return(env: Environment,
         return val
 
     val = jax.lax.while_loop(condition_function, body_function, initial_val)
-    return val["discounted_return"]
+    return val["discounted_return"], val['t']
 
 
-@partial(jax.jit, static_argnums=(0, 3, 4, 5))
+@partial(jax.jit, static_argnums=(0, 3, 4, 5, 7))
 def evaluate(env: Environment,
              key: jax.random.PRNGKey,
              model_params: FrozenDict, 
              model: NN,
              n_actions: int,
              n_eval_agents: int,
-             discount: float):
+             discount: float,
+             return_durations=False):
     
     agents_subkeyEval = jax.random.split(key, n_eval_agents)
-    returns = full_return(env,
-                          agents_subkeyEval,
-                          model_params,
-                          model,
-                          n_actions,
-                          discount)
-    assert returns.shape == (n_eval_agents,)
+    returns, durations = full_return(env,
+                                     agents_subkeyEval,
+                                     model_params,
+                                     model,
+                                     n_actions,
+                                     discount)
+    assert returns.shape == durations.shape == (n_eval_agents,)
+    if return_durations: 
+        return durations
+    
     return returns
 
 
@@ -91,8 +95,9 @@ class TestablePerturbedModel(nn.Module):
     
 
 if __name__ == "__main__":
-    from train_parallel_offpolicy import env_name, SEED, hidden_layer_sizes, architecture, activation, n_eval_agents, env, example_state_feature, n_actions, eval_discount, offpolicy_alpha
+    from train_parallel_offpolicy import env_name, SEED, N_SEEDS, hidden_layer_sizes, architecture, activation, n_eval_agents, env, example_state_feature, n_actions, eval_discount, offpolicy_alpha
     key0 = jax.random.PRNGKey(SEED)
+    keys = jnp.array([key0, *jax.random.split(key0, N_SEEDS-1)])
 
     if architecture == "shared":
         model = NN(hidden_layer_sizes=hidden_layer_sizes, 
@@ -109,7 +114,9 @@ if __name__ == "__main__":
     perturbed_model = TestablePerturbedModel(model, alpha=offpolicy_alpha)
     print(perturbed_model, '\n')
 
-    returns = evaluate(env, key0, model_params, perturbed_model, n_actions, n_eval_agents, eval_discount)
+    vmap_evaluate = jax.vmap(evaluate, in_axes=(None, 0, None, None, None, None, None, None))
+    returns = vmap_evaluate(env, keys, model_params, perturbed_model, n_actions, n_eval_agents, eval_discount, 
+                            False)
+    
     avg_return, std_return = np.mean(returns), np.std(returns)
     print(f"Returns avg ± std: {avg_return} ± {std_return}")
-    
