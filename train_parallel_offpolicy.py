@@ -5,6 +5,7 @@ import jax.numpy as jnp
 import numpy as np
 import argparse
 import json
+from flax.training.checkpoints import restore_checkpoint
 from model import NN, SeparateNN, PerturbedModel
 from learning_offpolicy import sample_batch, batch_epoch
 from test import evaluate
@@ -38,6 +39,8 @@ activation = config["activation"]
 n_eval_agents = config["n_eval_agents"]
 eval_iter = config["eval_iter"]
 
+behaviour_params = restore_checkpoint("./saved_models", None, 0, prefix=env_name+'_')
+
 env, env_params = gymnax.make(env_name)
 vecEnv_reset = jax.vmap(env.reset, in_axes=(0,))
 vecEnv_step = jax.vmap(env.step, in_axes=(0, 0, 0))
@@ -54,6 +57,8 @@ print("Minibatches per epoch:", n_iters_per_epoch)
 print("Outer steps:", n_outer_iters, '\n')
 
 ################# CAN VMAP OVER CHOICES OF: #################
+offpolicy_alpha = config["offpolicy_alpha"]
+assert 0 <= offpolicy_alpha <= 1
 clip_epsilon = config["clip_epsilon"]
 entropy_coeff = config["entropy_coeff"]
 val_loss_coeff = config["val_loss_coeff"]
@@ -70,13 +75,10 @@ eval_discount = config["eval_discount"]
 @jax.jit
 @partial(jax.vmap, in_axes=(0,))
 def train_once(key):
-# @partial(jax.vmap, in_axes=(0, None))
-# @partial(jax.vmap, in_axes=(None, 0))
-# def train_once(key, clip_epsilon):
 # @partial(jax.vmap, in_axes=(0, None, None))
 # @partial(jax.vmap, in_axes=(None, 0, None))
 # @partial(jax.vmap, in_axes=(None, None, 0))
-# def train_once(key, entropy_coeff, clip_epsilon):
+# def train_once(key, offpolicy_alpha, clip_epsilon):
     """ To vmap over a hparam, include it as an argument and 
     modify the decorators appropriately """
 
@@ -91,9 +93,7 @@ def train_once(key):
                         single_input_shape=example_state_feature.shape,
                         activation=activation)
 
-
-    behaviour_model = PerturbedModel(model, alpha=config["offpolicy_alpha"])
-
+    behaviour_model = PerturbedModel(model)
 
     key, subkey_model = jax.random.split(key)
     model_params = model.init(subkey_model, jnp.zeros(example_state_feature.shape))
@@ -141,7 +141,9 @@ def train_once(key):
                                                                     key,
                                                                     carry["model_params"], 
                                                                     model,
+                                                                    behaviour_params,
                                                                     behaviour_model,
+                                                                    offpolicy_alpha,
                                                                     n_actions,
                                                                     horizon,
                                                                     n_agents,
@@ -204,13 +206,11 @@ if __name__ == "__main__":
     ################# VMAP OVER: #################
     hparams = OrderedDict({"keys": keys})
     # hparams = OrderedDict({"keys": keys, 
-    #                        "clip": jnp.array([1e6, 0.8, 0.5, 0.2, 0.02])})
-    # hparams = OrderedDict({"keys": keys, 
-    #                        "ent": jnp.array( [0.0, 0.01, 0.1, 0.5] ),
-    #                        "clip": jnp.array( [0.02, 0.08, 0.2, 0.5, 0.8, 1e6] )})
+    #                        "alpha": jnp.array( [0.0, 0.5, 0.75, 1.0] ),
+    #                        "clip": jnp.array( [0.008, 0.02, 0.08, 0.2, 0.5, 1e6] )})
     ##############################################
     WANDB = True
-    SAVE_ARRAY = False
+    SAVE_ARRAY = True
 
     hparam_names = list(hparams.keys())
     assert hparam_names[0] == "keys"

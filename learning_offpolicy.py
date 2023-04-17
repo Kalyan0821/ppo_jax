@@ -4,7 +4,7 @@ import jax.numpy as jnp
 from functools import partial
 from flax.core.frozen_dict import FrozenDict
 import flax.linen as nn
-from model import NN
+from model import NN, PerturbedModel
 from typing import Callable
 from jax.config import config as cfg
 cfg.update("jax_enable_x64", True)  # to ensure vmap/non-vmap consistency
@@ -190,21 +190,16 @@ def sample_action_and_logLikelihood(key, n_actions, probs, logProbs):
     return (action, logLikelihood)
 
 
-@partial(jax.jit, static_argnums=(1,))
-@partial(jax.vmap, in_axes=(0, None))
-def behaviour_policy(x, n_actions):
-    probs = jnp.ones((n_actions,)) / n_actions
-    return jnp.log(probs)
-
-
-@partial(jax.jit, static_argnums=(2, 5, 6, 7, 8, 9))
+@partial(jax.jit, static_argnums=(2, 5, 7, 9, 10, 11))
 def sample_batch(agents_stateFeature: jnp.array,
                  agents_state: jnp.array,
                  vecEnv_step: Callable,
                  key: jax.random.PRNGKey,
                  model_params: FrozenDict,
                  model: NN,
-                 behaviour_model,
+                 behaviour_params: FrozenDict,
+                 behaviour_model: PerturbedModel,
+                 offpolicy_alpha: float,
                  n_actions: int,
                  horizon: int,
                  n_agents: int,
@@ -219,10 +214,9 @@ def sample_batch(agents_stateFeature: jnp.array,
         agents_logProbs, agents_value = model.apply(model_params, carry["agents_stateFeature"])
         agents_value = jnp.squeeze(agents_value, axis=-1)  # (n_agents,)
         assert agents_logProbs.shape == (n_agents, n_actions)
-
-        # behaviours_logProbs = behaviour_policy(carry["agents_stateFeature"], n_actions)
-        behaviours_logProbs, _ = behaviour_model.apply(model_params, carry["agents_stateFeature"])
-
+        
+        # (n_agents, n_actions)
+        behaviours_logProbs, _ = behaviour_model.apply(behaviour_params, x=carry["agents_stateFeature"], alpha=offpolicy_alpha)
         behaviours_probs = jnp.exp(behaviours_logProbs)
         assert behaviours_probs.shape == (n_agents, n_actions)
 

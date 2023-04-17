@@ -70,9 +70,6 @@ eval_discount = config["eval_discount"]
 @jax.jit
 # @partial(jax.vmap, in_axes=(0,))
 # def train_once(key):
-# @partial(jax.vmap, in_axes=(0, None))
-# @partial(jax.vmap, in_axes=(None, 0))
-# def train_once(key, clip_epsilon):
 @partial(jax.vmap, in_axes=(0, None, None))
 @partial(jax.vmap, in_axes=(None, 0, None))
 @partial(jax.vmap, in_axes=(None, None, 0))

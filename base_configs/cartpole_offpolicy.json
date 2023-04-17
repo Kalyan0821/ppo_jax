@@ -3,7 +3,7 @@
 "SEED": 42,
 "N_SEEDS": 8,
 
-"total_experience": 500000,
+"total_experience": 1e6,
 "lr_begin": 5e-4,
 "lr_end": 5e-4,
 "n_agents": 8,
@@ -14,8 +14,10 @@
 "architecture": "separate",
 "activation": "relu",
 
+"offpolicy_alpha": 0.5,
 "clip_epsilon": 0.2,
-"entropy_coeff": 0.01,
+
+"entropy_coeff": 0,
 "val_loss_coeff": 0.5,
 "clip_grad": 0.5,
 "gae_lambda": 0.95,
@@ -25,6 +27,4 @@
 "discount": 0.99,
 "eval_discount": 1.0,
 "n_eval_agents": 16,
-"eval_iter": 40,
-
-"offpolicy_alpha": 0.7}
+"eval_iter": 40}

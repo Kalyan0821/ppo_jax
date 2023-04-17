@@ -6,7 +6,7 @@ from flax.core.frozen_dict import FrozenDict
 from flax.training.checkpoints import restore_checkpoint
 import numpy as np
 import flax.linen as nn
-from model import NN, SeparateNN, PerturbedModel
+from model import NN, SeparateNN
 from jax.config import config as cfg
 cfg.update("jax_enable_x64", True)  # to ensure vmap/non-vmap consistency
 
@@ -71,13 +71,28 @@ def evaluate(env: Environment,
     return returns
 
 
-if __name__ == "__main__":
-    from train_parallel import env_name, SEED, total_experience, hidden_layer_sizes, architecture, activation, n_eval_agents, env, example_state_feature, n_actions, eval_discount
-    key0 = jax.random.PRNGKey(SEED)
+class TestablePerturbedModel(nn.Module):
+    model: NN
+    alpha: float
+    
+    def apply(self, params: FrozenDict, x: jnp.array):
+        assert 0 <= self.alpha <= 1
 
-    # ALPHA = 1.0
-    # ALPHA = 0.0
-    ALPHA = 0.7
+        log_probs, _ = self.model.apply(params, x)
+        probs = jnp.exp(log_probs)
+        assert probs.shape[-1] == self.model.n_actions
+
+        uniform_probs = jnp.ones(probs.shape) / self.model.n_actions
+
+        new_probs = self.alpha*probs + (1-self.alpha)*uniform_probs
+        new_log_probs = jnp.log(new_probs)
+
+        return new_log_probs, None
+    
+
+if __name__ == "__main__":
+    from train_parallel_offpolicy import env_name, SEED, hidden_layer_sizes, architecture, activation, n_eval_agents, env, example_state_feature, n_actions, eval_discount, offpolicy_alpha
+    key0 = jax.random.PRNGKey(SEED)
 
     if architecture == "shared":
         model = NN(hidden_layer_sizes=hidden_layer_sizes, 
@@ -90,8 +105,8 @@ if __name__ == "__main__":
                         single_input_shape=example_state_feature.shape,
                         activation=activation)
 
-    model_params = restore_checkpoint("./saved_models", None, total_experience, prefix=env_name+'_')
-    perturbed_model = PerturbedModel(model, alpha=ALPHA)
+    model_params = restore_checkpoint("./saved_models", None, 0, prefix=env_name+'_')
+    perturbed_model = TestablePerturbedModel(model, alpha=offpolicy_alpha)
     print(perturbed_model, '\n')
 
     returns = evaluate(env, key0, model_params, perturbed_model, n_actions, n_eval_agents, eval_discount)

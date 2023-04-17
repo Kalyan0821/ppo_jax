@@ -181,4 +181,4 @@ for exp, steps in evals:
 print()
 
 if SAVE_MODEL:
-    save_checkpoint("./saved_models", model_params, total_experience, prefix=env_name+'_', overwrite=True)
+    save_checkpoint("./saved_models", model_params, 0, prefix=env_name+'_', overwrite=True)
