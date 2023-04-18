@@ -116,8 +116,9 @@ def train_once(key):
             avg_return, std_return = jnp.mean(returns), jnp.std(returns)
             return avg_return, std_return, key            
         def f_false(carry):
-            # return jnp.array(-1.0, dtype=jnp.float32), jnp.array(-1.0, dtype=jnp.float32), carry["key"]
-            return -1.0, -1.0, carry["key"]
+            if "Acrobot" in env_name or "CartPole" in env_name or "Mountain" in env_name:
+                return -1.0, -1.0, carry["key"]
+            return jnp.array(-1.0, dtype=jnp.float32), jnp.array(-1.0, dtype=jnp.float32), carry["key"]
 
 
         append_to = dict()
