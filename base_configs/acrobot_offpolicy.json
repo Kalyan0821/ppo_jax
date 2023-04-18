@@ -4,8 +4,8 @@
 "N_SEEDS": 8,
 
 "total_experience": 5e6,
-"lr_begin": 5e-4,
-"lr_end": 5e-4,
+"lr_begin": 5e-2,
+"lr_end": 5e-2,
 "n_agents": 32,
 "horizon": 128,
 "n_epochs": 16,
@@ -14,9 +14,9 @@
 "architecture": "separate",
 "activation": "relu",
 
-"offpolicy_alpha": 0.5,
-"clip_epsilon": 0.00001,
-"entropy_coeff": 0.2,
+"offpolicy_alpha": 0.8,
+"clip_epsilon": 0.001,
+"entropy_coeff": 0,
 "val_loss_coeff": 0.05,
 
 "clip_grad": 1.0,
