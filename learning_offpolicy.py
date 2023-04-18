@@ -220,6 +220,7 @@ def sample_batch(agents_stateFeature: jnp.array,
         behaviours_probs = jnp.exp(behaviours_logProbs)
         assert behaviours_probs.shape == (n_agents, n_actions)
 
+
         key, *behaviours_subkeyPolicy = jax.random.split(carry["key"], n_agents+1)
         behaviours_subkeyPolicy = jnp.asarray(behaviours_subkeyPolicy)  # (n_agents, ...)
         # (n_agents,.), int, (n_agents,n_actions), (n_agents,n_actions) --> (n_agents,), (n_agents,)
