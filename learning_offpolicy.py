@@ -24,7 +24,7 @@ def loss_function(model_params: FrozenDict,
     old_policy_log_likelihoods = minibatch["old_policy_log_likelihoods"]  # (minibatch_size,)
     behaviour_log_likelihoods = minibatch["behaviour_log_likelihoods"]  # (minibatch_size,)
     corrected_advantages = minibatch["corrected_advantages"]  # (minibatch_size,)
-    bootstrap_returns = minibatch["bootstrap_returns"]  # (minibatch_size,)
+    corrected_bootstrap_returns = minibatch["corrected_bootstrap_returns"]  # (minibatch_size,)
     assert states.shape[0] == minibatch_size
 
     # (minibatch_size, n_actions), (minibatch_size, 1)
@@ -61,7 +61,7 @@ def loss_function(model_params: FrozenDict,
     reg_losses = old_by_behaviour_likelihood_ratios * nn.relu((likelihood_ratios-clip_likelihood_ratios) * corrected_advantages)
     
     ppo_loss = -1. * jnp.mean(policy_gradient_losses - reg_losses)
-    val_loss = 0.5 * jnp.mean((values-bootstrap_returns)**2)    
+    val_loss = 0.5 * jnp.mean((values-corrected_bootstrap_returns)**2)    
     entropy_bonus = jnp.mean(-jnp.exp(policy_log_probs)*policy_log_probs) * n_actions
 
     loss = ppo_loss + val_loss_coeff*val_loss - entropy_coeff*entropy_bonus
@@ -198,7 +198,7 @@ def sample_batch(agents_stateFeature: jnp.array,
                  model_params: FrozenDict,
                  model: NN,
                  behaviour_params: FrozenDict,
-                 behaviour_model: PerturbedModel,
+                 behaviour_model: NN,
                  offpolicy_alpha: float,
                  n_actions: int,
                  horizon: int,
@@ -216,7 +216,8 @@ def sample_batch(agents_stateFeature: jnp.array,
         assert agents_logProbs.shape == (n_agents, n_actions)
         
         # (n_agents, n_actions)
-        behaviours_logProbs, _ = behaviour_model.apply(behaviour_params, x=carry["agents_stateFeature"], alpha=offpolicy_alpha)
+        behaviours_logProbs, behaviours_value = behaviour_model.apply(behaviour_params, carry["agents_stateFeature"])
+        behaviours_value = jnp.squeeze(behaviours_value, axis=-1)  # (n_agents,)        
         behaviours_probs = jnp.exp(behaviours_logProbs)
         assert behaviours_probs.shape == (n_agents, n_actions)
 
@@ -241,6 +242,7 @@ def sample_batch(agents_stateFeature: jnp.array,
 
         append_to = {"states": carry["agents_stateFeature"],
                      "values": agents_value,
+                     "behaviour_values": behaviours_value,
                      "actions": behaviours_action,
                      "old_policy_log_likelihoods": agents_logLikelihood,
                      "behaviour_log_likelihoods": behaviours_logLikelihood}
@@ -262,11 +264,17 @@ def sample_batch(agents_stateFeature: jnp.array,
     batch["values"] = jnp.row_stack((batch["values"],
                                      agents_value))  # (horizon + 1, n_agents), where column = [v_0, v_1, v_2, ..., v_H]
     
+    _, behaviours_value = behaviour_model.apply(behaviour_params, carry["agents_stateFeature"])
+    behaviours_value = jnp.squeeze(behaviours_value, axis=-1)  # (n_agents,)
+    batch["behaviour_values"] = jnp.row_stack((batch["behaviour_values"],
+                                               behaviours_value))  # (horizon + 1, n_agents), where column = [v_0, v_1, v_2, ..., v_H]
+
+
     old_by_behaviour_likelihood_ratios = jnp.exp(batch["old_policy_log_likelihoods"] - batch["behaviour_log_likelihoods"])
     assert old_by_behaviour_likelihood_ratios.shape == (horizon, n_agents)
 
     # Both: (horizon, n_agents)
-    batch["corrected_advantages"], batch["bootstrap_returns"] = batch_advantages_and_returns(
+    batch["corrected_advantages"], batch["corrected_bootstrap_returns"] = batch_advantages_and_returns(
                                                                 batch["values"],
                                                                 batch["rewards"],
                                                                 batch["nextTerminals"],
@@ -274,9 +282,19 @@ def sample_batch(agents_stateFeature: jnp.array,
                                                                 horizon,
                                                                 discount,
                                                                 gae_lambda)
-    assert batch["corrected_advantages"].shape == batch["bootstrap_returns"].shape == (horizon, n_agents)
 
-    return_keys = ["states", "actions", "old_policy_log_likelihoods", "behaviour_log_likelihoods", "corrected_advantages", "bootstrap_returns"]
+    batch["behaviour_advantages"], batch["behaviour_bootstrap_returns"] = batch_advantages_and_returns(
+                                                                batch["behaviour_values"],
+                                                                batch["rewards"],
+                                                                batch["nextTerminals"],
+                                                                jnp.ones((horizon, n_agents)),
+                                                                horizon,
+                                                                discount,
+                                                                gae_lambda)
+
+    assert batch["corrected_advantages"].shape == batch["corrected_bootstrap_returns"].shape == (horizon, n_agents)
+
+    return_keys = ["states", "actions", "old_policy_log_likelihoods", "behaviour_log_likelihoods", "corrected_advantages", "behaviour_advantages", "corrected_bootstrap_returns", "behaviour_bootstrap_returns"]
     return_batch = {k: batch[k] for k in return_keys}
 
     return carry["agents_stateFeature"], carry["agents_state"], return_batch, carry["key"]

@@ -57,6 +57,10 @@ print("Minibatches per epoch:", n_iters_per_epoch)
 print("Outer steps:", n_outer_iters, '\n')
 
 ################# CAN VMAP OVER CHOICES OF: #################
+
+config["offpolicy_alpha"] = 0
+
+
 offpolicy_alpha = config["offpolicy_alpha"]
 assert 0 <= offpolicy_alpha <= 1
 clip_epsilon = config["clip_epsilon"]
@@ -87,16 +91,24 @@ def train_once(key):
                 n_actions=n_actions, 
                 single_input_shape=example_state_feature.shape,
                 activation=activation)
+        behaviour_model = NN(hidden_layer_sizes=hidden_layer_sizes, 
+                n_actions=n_actions, 
+                single_input_shape=example_state_feature.shape,
+                activation=activation)
+        
     elif architecture == "separate":
         model = SeparateNN(hidden_layer_sizes=hidden_layer_sizes, 
                         n_actions=n_actions, 
                         single_input_shape=example_state_feature.shape,
                         activation=activation)
-
-    behaviour_model = PerturbedModel(model)
+        behaviour_model = SeparateNN(hidden_layer_sizes=hidden_layer_sizes, 
+                        n_actions=n_actions, 
+                        single_input_shape=example_state_feature.shape,
+                        activation=activation)
 
     key, subkey_model = jax.random.split(key)
     model_params = model.init(subkey_model, jnp.zeros(example_state_feature.shape))
+    behaviour_params = behaviour_model.init(subkey_model, jnp.zeros(example_state_feature.shape))
 
     lr = optax.linear_schedule(init_value=lr_begin, 
                                end_value=lr_end, 
@@ -105,15 +117,20 @@ def train_once(key):
     max_norm = jnp.where(clip_grad > 0, clip_grad, jnp.inf).astype(jnp.float32)
     optimizer = optax.chain(optax.clip_by_global_norm(max_norm=max_norm), 
                             optax.adam(lr))
+    behaviour_optimizer = optax.chain(optax.clip_by_global_norm(max_norm=max_norm), 
+                            optax.adam(lr))
 
     key, *agents_subkeyReset = jax.random.split(key, n_agents+1)
     agents_subkeyReset = jnp.asarray(agents_subkeyReset)
     agents_stateFeature, agents_state = vecEnv_reset(agents_subkeyReset)  # (n_agents, n_features), (n_agents, .)
     optimizer_state = optimizer.init(model_params)
+    behaviour_optimizer_state = behaviour_optimizer.init(behaviour_params)
 
     initial_carry = {"key": key,
                      "model_params": model_params,
+                     "behaviour_params": behaviour_params,
                      "optimizer_state": optimizer_state,
+                     "behaviour_optimizer_state": behaviour_optimizer_state,
                      "agents_stateFeature": agents_stateFeature,
                      "agents_state": agents_state}
     def scan_function(carry, idx):
@@ -138,7 +155,7 @@ def train_once(key):
                                                                     key,
                                                                     carry["model_params"], 
                                                                     model,
-                                                                    behaviour_params,
+                                                                    carry["behaviour_params"],
                                                                     behaviour_model,
                                                                     offpolicy_alpha,
                                                                     n_actions,
@@ -146,6 +163,22 @@ def train_once(key):
                                                                     n_agents,
                                                                     discount,
                                                                     gae_lambda)
+        
+        corrected_batch = {"states": batch["states"],
+                           "actions": batch["actions"],
+                           "old_policy_log_likelihoods": batch["old_policy_log_likelihoods"],
+                           "behaviour_log_likelihoods": batch["behaviour_log_likelihoods"],
+                           "corrected_advantages": batch["corrected_advantages"],
+                           "corrected_bootstrap_returns": batch["corrected_bootstrap_returns"]}
+        
+        behaviour_batch = {"states": batch["states"],
+                           "actions": batch["actions"],
+                           "old_policy_log_likelihoods": batch["behaviour_log_likelihoods"],
+                           "behaviour_log_likelihoods": batch["behaviour_log_likelihoods"],
+                           "corrected_advantages": batch["behaviour_advantages"],
+                           "corrected_bootstrap_returns": batch["behaviour_bootstrap_returns"]}
+        
+
         # (agents_stateFeature, agents_state) returned were the last ones seen in this step, and will initialize the next step
         assert carry["agents_stateFeature"].shape[0] == n_agents
 
@@ -156,12 +189,29 @@ def train_once(key):
 
             (carry["model_params"], carry["optimizer_state"], minibatch_losses, 
             ppo_losses, val_losses, ent_bonuses, clip_trigger_fracs, approx_kls) = batch_epoch(
-                                                        batch,
+                                                        corrected_batch,
                                                         permutation_key,
                                                         carry["model_params"], 
                                                         model,
                                                         carry["optimizer_state"],
                                                         optimizer,
+                                                        n_actions,
+                                                        horizon,
+                                                        n_agents,
+                                                        minibatch_size,
+                                                        val_loss_coeff,
+                                                        entropy_coeff,
+                                                        normalize_advantages,
+                                                        clip_epsilon*alpha)
+            
+            (carry["behaviour_params"], carry["behaviour_optimizer_state"], _, 
+            _, _, _, _, _) = batch_epoch(
+                                                        behaviour_batch,
+                                                        permutation_key,
+                                                        carry["behaviour_params"], 
+                                                        behaviour_model,
+                                                        carry["behaviour_optimizer_state"],
+                                                        behaviour_optimizer,
                                                         n_actions,
                                                         horizon,
                                                         n_agents,
@@ -232,7 +282,7 @@ if __name__ == "__main__":
 
     # Log to wandb:
     if WANDB:
-        wandb.init(project="ppo_offpolicy", 
+        wandb.init(project="ppo_synchronized", 
                    config=config,
                    name=env_name+'-'+datetime.datetime.now().strftime("%d.%m-%H:%M"))            
         npmean = lambda x: np.mean(np.array(x))
