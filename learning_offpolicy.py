@@ -61,7 +61,8 @@ def loss_function(model_params: FrozenDict,
     reg_losses = old_by_behaviour_likelihood_ratios * nn.relu((likelihood_ratios-clip_likelihood_ratios) * corrected_advantages)
     
     ppo_loss = -1. * jnp.mean(policy_gradient_losses - reg_losses)
-    val_loss = 0.5 * jnp.mean((values-bootstrap_returns)**2)    
+    val_loss = 0.5 * jnp.mean((values-bootstrap_returns)**2)
+    # val_loss = 0.5 * jnp.mean((old_by_behaviour_likelihood_ratios*values - bootstrap_returns)**2)
     entropy_bonus = jnp.mean(-jnp.exp(policy_log_probs)*policy_log_probs) * n_actions
 
     loss = ppo_loss + val_loss_coeff*val_loss - entropy_coeff*entropy_bonus
