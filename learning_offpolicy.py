@@ -169,20 +169,10 @@ def batch_advantages_and_returns(values: jnp.array,
 
         # RHO = 1
         RHO = old_by_behaviour_likelihood_ratios[t, :]
-
-        # RHO = jnp.clip(old_by_behaviour_likelihood_ratios[t, :], a_min=0, a_max=5)
-
-
-        # td_error = RHO*(rewards[t] + discount*next_value) - values[t]
-        # advantage = td_error + (discount*gae_lambda)*RHO*next_advantage
-        # bootstrap_return = advantage + values[t]
-        # corrected_advantage = bootstrap_return/(RHO + 1e-8) - values[t]
-
         temp = rewards[t, :] + discount*next_value + (discount*gae_lambda)*next_advantage
         bootstrap_return = RHO*temp
         advantage = bootstrap_return - values[t, :]
         corrected_advantage = temp - values[t, :]
-
 
         append_to = {"corrected_advantages": corrected_advantage,
                      "bootstrap_returns": bootstrap_return}
