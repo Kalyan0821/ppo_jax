@@ -3,13 +3,13 @@
 "SEED": 42,
 "N_SEEDS": 8,
 
-"total_experience": 500000,
+"total_experience": 3000,
 "lr_begin": 5e-4,
 "lr_end": 5e-4,
 "n_agents": 64,
-"horizon": 128,
+"horizon": 8,
 "n_epochs": 4,
-"minibatch_size": 1024,
+"minibatch_size": 256,
 "hidden_layer_sizes": [256, 256],
 "architecture": "separate",
 "activation": "relu",
@@ -25,4 +25,4 @@
 "discount": 0.999,
 "eval_discount": 1.0,
 "n_eval_agents": 16,
-"eval_iter": 40}
+"eval_iter": 1}

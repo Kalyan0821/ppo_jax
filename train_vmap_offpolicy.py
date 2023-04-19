@@ -91,24 +91,16 @@ def train_once(key):
                 n_actions=n_actions, 
                 single_input_shape=example_state_feature.shape,
                 activation=activation)
-        behaviour_model = NN(hidden_layer_sizes=hidden_layer_sizes, 
-                n_actions=n_actions, 
-                single_input_shape=example_state_feature.shape,
-                activation=activation)
         
     elif architecture == "separate":
         model = SeparateNN(hidden_layer_sizes=hidden_layer_sizes, 
                         n_actions=n_actions, 
                         single_input_shape=example_state_feature.shape,
                         activation=activation)
-        behaviour_model = SeparateNN(hidden_layer_sizes=hidden_layer_sizes, 
-                        n_actions=n_actions, 
-                        single_input_shape=example_state_feature.shape,
-                        activation=activation)
 
     key, subkey_model = jax.random.split(key)
     model_params = model.init(subkey_model, jnp.zeros(example_state_feature.shape))
-    behaviour_params = behaviour_model.init(subkey_model, jnp.zeros(example_state_feature.shape))
+    behaviour_params = model_params
 
     lr = optax.linear_schedule(init_value=lr_begin, 
                                end_value=lr_end, 
@@ -141,6 +133,8 @@ def train_once(key):
         def f_true(carry):
             key, key_eval = jax.random.split(carry["key"])
             returns = evaluate(env, key_eval, carry["model_params"], model, n_actions, n_eval_agents, eval_discount)
+            # returns = evaluate(env, key_eval, carry["behaviour_params"], behaviour_model, n_actions, n_eval_agents, eval_discount)
+
             avg_return, std_return = jnp.mean(returns), jnp.std(returns)
             return avg_return, std_return, key            
         def f_false(carry):
@@ -153,6 +147,7 @@ def train_once(key):
         append_to["steps"], append_to["experiences"] = idx, idx*n_agents*horizon
         append_to["avg_returns"], append_to["std_returns"], key = jax.lax.cond(idx % eval_iter == 0, f_true, f_false, carry)
 
+
         carry["agents_stateFeature"], carry["agents_state"], batch, key = sample_batch(carry["agents_stateFeature"],
                                                                     carry["agents_state"],
                                                                     vecEnv_step,
@@ -160,8 +155,6 @@ def train_once(key):
                                                                     carry["model_params"], 
                                                                     model,
                                                                     carry["behaviour_params"],
-                                                                    behaviour_model,
-                                                                    offpolicy_alpha,
                                                                     n_actions,
                                                                     horizon,
                                                                     n_agents,
@@ -188,7 +181,7 @@ def train_once(key):
 
         alpha = jnp.where(anneal, (1-idx/n_outer_iters), 1.0)
 
-        for _ in range(n_epochs):
+        for e in range(n_epochs):
             key, permutation_key = jax.random.split(key)
 
             (carry["behaviour_params"], carry["behaviour_optimizer_state"], _, 
@@ -196,7 +189,7 @@ def train_once(key):
                                                         behaviour_batch,
                                                         permutation_key,
                                                         carry["behaviour_params"], 
-                                                        behaviour_model,
+                                                        model,
                                                         carry["behaviour_optimizer_state"],
                                                         behaviour_optimizer,
                                                         n_actions,
@@ -225,6 +218,17 @@ def train_once(key):
                                                         normalize_advantages,
                                                         clip_epsilon*alpha)
             
+
+
+
+            diff = jax.tree_map(lambda x, y: jnp.mean(x-y), carry["model_params"], carry["behaviour_params"])
+            flat_diffs = jax.tree_util.tree_flatten(diff)
+            jax.debug.print("{}\n{}\n", e, jnp.array(flat_diffs[0]))
+            
+        jax.debug.print("{}-----------------------------", idx)
+
+
+
         carry["key"] = key
         append_to["minibatch_losses"] = jnp.mean(minibatch_losses)
         append_to["ppo_losses"] = jnp.mean(ppo_losses)
@@ -235,11 +239,14 @@ def train_once(key):
 
         return carry, append_to
 
+
     carry, result = jax.lax.scan(scan_function, initial_carry, xs=jnp.arange(n_outer_iters))
     
     # One more eval
     _, key_eval = jax.random.split(carry["key"])
     returns = evaluate(env, key_eval, carry["model_params"], model, n_actions, n_eval_agents, eval_discount)
+    # returns = evaluate(env, key_eval, carry["behaviour_params"], behaviour_model, n_actions, n_eval_agents, eval_discount)
+
     avg_return, std_return = jnp.mean(returns), jnp.std(returns)
     result["steps"] = jnp.append(result["steps"], result["steps"][-1] + 1)    
     result["experiences"] = jnp.append(result["experiences"], result["experiences"][-1] + n_agents*horizon)
@@ -251,7 +258,8 @@ def train_once(key):
 
 if __name__ == "__main__":
     key0 = jax.random.PRNGKey(SEED)
-    keys = jnp.array([key0, *jax.random.split(key0, N_SEEDS-1)])
+    # keys = jnp.array([key0, *jax.random.split(key0, N_SEEDS-1)])
+    keys = jnp.array([key0])
 
 
     ################# VMAP OVER: #################

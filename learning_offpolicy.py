@@ -145,29 +145,37 @@ def batch_epoch(batch: dict[str, jnp.array],
     return (carry["model_params"], carry["optimizer_state"], *result)
 
 
-@partial(jax.jit, static_argnums=(4,))
-@partial(jax.vmap, in_axes=(1, 1, 1, 1, None, None, None), out_axes=(1, 1))
+@partial(jax.jit, static_argnums=(4, 5))
 def batch_advantages_and_returns(values: jnp.array,
                                  rewards: jnp.array,
                                  next_is_terminal: jnp.array,
                                  old_by_behaviour_likelihood_ratios: jnp.array,
                                  horizon: int,
+                                 n_agents: int,
                                  discount: float,
                                  gae_lambda: float):
     
-    assert rewards.shape == next_is_terminal.shape == (horizon,)
-    assert values.shape == (horizon + 1,)
+    assert rewards.shape == next_is_terminal.shape == (horizon, n_agents)
+    assert values.shape == (horizon + 1, n_agents)
 
-    initial_carry = {"next_advantage": 0.}
+    initial_carry = {"next_advantage": jnp.zeros((n_agents,))}
     def scan_function(carry, t):
-        next_value = jnp.where(next_is_terminal[t], 0., values[t+1])
-        next_advantage = jnp.where(next_is_terminal[t], 0., carry["next_advantage"])
+        next_value = jnp.where(next_is_terminal[t], jnp.zeros((n_agents,)), values[t+1])
+        next_advantage = jnp.where(next_is_terminal[t], jnp.zeros((n_agents,)), carry["next_advantage"])
 
-        RHO = old_by_behaviour_likelihood_ratios[t]
-        td_error = RHO*(rewards[t] + discount*next_value) - values[t]
-        advantage = td_error + (discount*gae_lambda)*RHO*next_advantage
-        bootstrap_return = advantage + values[t]
-        corrected_advantage = bootstrap_return/(RHO + 1e-8) - values[t]
+        RHO = 1.0
+        # RHO = old_by_behaviour_likelihood_ratios[t]
+
+        # td_error = RHO*(rewards[t] + discount*next_value) - values[t]
+        # advantage = td_error + (discount*gae_lambda)*RHO*next_advantage
+        # bootstrap_return = advantage + values[t]
+        # corrected_advantage = bootstrap_return/(RHO + 1e-8) - values[t]
+
+        temp = rewards[t] + discount*next_value + (discount*gae_lambda)*next_advantage
+        bootstrap_return = RHO*temp
+        advantage = bootstrap_return - values[t]
+        corrected_advantage = temp - values[t]
+
 
         append_to = {"corrected_advantages": corrected_advantage,
                      "bootstrap_returns": bootstrap_return}
@@ -191,7 +199,7 @@ def sample_action_and_logLikelihood(key, n_actions, probs, logProbs):
     return (action, logLikelihood)
 
 
-@partial(jax.jit, static_argnums=(2, 5, 7, 9, 10, 11))
+@partial(jax.jit, static_argnums=(2, 5, 7, 8, 9))
 def sample_batch(agents_stateFeature: jnp.array,
                  agents_state: jnp.array,
                  vecEnv_step: Callable,
@@ -199,8 +207,6 @@ def sample_batch(agents_stateFeature: jnp.array,
                  model_params: FrozenDict,
                  model: NN,
                  behaviour_params: FrozenDict,
-                 behaviour_model: NN,
-                 offpolicy_alpha: float,
                  n_actions: int,
                  horizon: int,
                  n_agents: int,
@@ -213,14 +219,13 @@ def sample_batch(agents_stateFeature: jnp.array,
     def scan_function(carry, x=None):
         # (n_agents, n_actions), (n_agents, 1)
         agents_logProbs, agents_value = model.apply(model_params, carry["agents_stateFeature"])
-        agents_probs = jnp.exp(agents_logProbs)
         agents_value = jnp.squeeze(agents_value, axis=-1)  # (n_agents,)
         assert agents_logProbs.shape == (n_agents, n_actions)
         
         # (n_agents, n_actions)
-        behaviours_logProbs, behaviours_value = behaviour_model.apply(behaviour_params, carry["agents_stateFeature"])
-        behaviours_value = jnp.squeeze(behaviours_value, axis=-1)  # (n_agents,)        
+        behaviours_logProbs, behaviours_value = model.apply(behaviour_params, carry["agents_stateFeature"])
         behaviours_probs = jnp.exp(behaviours_logProbs)
+        behaviours_value = jnp.squeeze(behaviours_value, axis=-1)  # (n_agents,)        
         assert behaviours_probs.shape == (n_agents, n_actions)
 
 
@@ -233,17 +238,11 @@ def sample_batch(agents_stateFeature: jnp.array,
                                                                 behaviours_probs,
                                                                 behaviours_logProbs)
         
-
-        _, agents_logLikelihood = sample_action_and_logLikelihood(
-                                                                behaviours_subkeyPolicy, 
-                                                                n_actions, 
-                                                                behaviours_probs,
-                                                                agents_logProbs)
-        # # (m, a) x (m,) => (m,) 
-        # @partial(jax.vmap, in_axes=0)
-        # def get_element(vector, idx):
-        #     return vector[idx]
-        # agents_logLikelihood = get_element(agents_logProbs, behaviours_action)
+        # (m, a) x (m,) => (m,) 
+        @partial(jax.vmap, in_axes=0)
+        def get_element(vector, idx):
+            return vector[idx]
+        agents_logLikelihood = get_element(agents_logProbs, behaviours_action)
         
         assert behaviours_action.shape == (n_agents,)
         assert agents_logLikelihood.shape == behaviours_logLikelihood.shape == (n_agents,)
@@ -267,19 +266,25 @@ def sample_batch(agents_stateFeature: jnp.array,
     carry, batch = jax.lax.scan(scan_function, initial_carry, xs=None, length=horizon)
 
     # Finally, also get v(S_horizon) for advantage calculation
+    _, behaviours_value = model.apply(behaviour_params, carry["agents_stateFeature"])
+    behaviours_value = jnp.squeeze(behaviours_value, axis=-1)  # (n_agents,)
+    batch["behaviour_values"] = jnp.row_stack((batch["behaviour_values"],
+                                               behaviours_value))  # (horizon + 1, n_agents), where column = [v_0, v_1, v_2, ..., v_H]
+    
     _, agents_value = model.apply(model_params, carry["agents_stateFeature"])
     agents_value = jnp.squeeze(agents_value, axis=-1)  # (n_agents,)
     batch["values"] = jnp.row_stack((batch["values"],
                                      agents_value))  # (horizon + 1, n_agents), where column = [v_0, v_1, v_2, ..., v_H]
     
-    _, behaviours_value = behaviour_model.apply(behaviour_params, carry["agents_stateFeature"])
-    behaviours_value = jnp.squeeze(behaviours_value, axis=-1)  # (n_agents,)
-    batch["behaviour_values"] = jnp.row_stack((batch["behaviour_values"],
-                                               behaviours_value))  # (horizon + 1, n_agents), where column = [v_0, v_1, v_2, ..., v_H]
 
 
     old_by_behaviour_likelihood_ratios = jnp.exp(batch["old_policy_log_likelihoods"] - batch["behaviour_log_likelihoods"])
     assert old_by_behaviour_likelihood_ratios.shape == (horizon, n_agents)
+
+
+
+    # jax.debug.print("{}", jnp.mean(old_by_behaviour_likelihood_ratios))
+
 
     # Both: (horizon, n_agents)
     batch["corrected_advantages"], batch["corrected_bootstrap_returns"] = batch_advantages_and_returns(
@@ -288,6 +293,7 @@ def sample_batch(agents_stateFeature: jnp.array,
                                                                 batch["nextTerminals"],
                                                                 old_by_behaviour_likelihood_ratios,
                                                                 horizon,
+                                                                n_agents,
                                                                 discount,
                                                                 gae_lambda)
 
@@ -297,6 +303,7 @@ def sample_batch(agents_stateFeature: jnp.array,
                                                                 batch["nextTerminals"],
                                                                 jnp.ones((horizon, n_agents)),
                                                                 horizon,
+                                                                n_agents,
                                                                 discount,
                                                                 gae_lambda)
 
