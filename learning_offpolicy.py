@@ -9,6 +9,7 @@ from typing import Callable
 from jax.config import config as cfg
 cfg.update("jax_enable_x64", True)  # to ensure vmap/non-vmap consistency
 
+
 def loss_function(model_params: FrozenDict,
                   minibatch: dict[str, jnp.array],
                   model: NN,
@@ -168,7 +169,7 @@ def batch_advantages_and_returns(values: jnp.array,
         bootstrap_return = advantage + values[t]
         corrected_advantage = bootstrap_return/(RHO + 1e-8) - values[t]
 
-        append_to = {"corrected_advantages": corrected_advantage, 
+        append_to = {"corrected_advantages": corrected_advantage,
                      "bootstrap_returns": bootstrap_return}
         
         carry["next_advantage"] = advantage
@@ -212,6 +213,7 @@ def sample_batch(agents_stateFeature: jnp.array,
     def scan_function(carry, x=None):
         # (n_agents, n_actions), (n_agents, 1)
         agents_logProbs, agents_value = model.apply(model_params, carry["agents_stateFeature"])
+        agents_probs = jnp.exp(agents_logProbs)
         agents_value = jnp.squeeze(agents_value, axis=-1)  # (n_agents,)
         assert agents_logProbs.shape == (n_agents, n_actions)
         
@@ -231,11 +233,17 @@ def sample_batch(agents_stateFeature: jnp.array,
                                                                 behaviours_probs,
                                                                 behaviours_logProbs)
         
-        # (m, a) x (m,) => (m,) 
-        @partial(jax.vmap, in_axes=0)
-        def get_element(vector, idx):
-            return vector[idx]
-        agents_logLikelihood = get_element(agents_logProbs, behaviours_action)
+
+        _, agents_logLikelihood = sample_action_and_logLikelihood(
+                                                                behaviours_subkeyPolicy, 
+                                                                n_actions, 
+                                                                behaviours_probs,
+                                                                agents_logProbs)
+        # # (m, a) x (m,) => (m,) 
+        # @partial(jax.vmap, in_axes=0)
+        # def get_element(vector, idx):
+        #     return vector[idx]
+        # agents_logLikelihood = get_element(agents_logProbs, behaviours_action)
         
         assert behaviours_action.shape == (n_agents,)
         assert agents_logLikelihood.shape == behaviours_logLikelihood.shape == (n_agents,)

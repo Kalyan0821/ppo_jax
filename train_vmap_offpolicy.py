@@ -114,11 +114,15 @@ def train_once(key):
                                end_value=lr_end, 
                                transition_steps=n_outer_iters*n_inner_iters)
     
+    behaviour_lr = optax.linear_schedule(init_value=lr_begin, 
+                               end_value=lr_end, 
+                               transition_steps=n_outer_iters*n_inner_iters)
+
     max_norm = jnp.where(clip_grad > 0, clip_grad, jnp.inf).astype(jnp.float32)
     optimizer = optax.chain(optax.clip_by_global_norm(max_norm=max_norm), 
                             optax.adam(lr))
     behaviour_optimizer = optax.chain(optax.clip_by_global_norm(max_norm=max_norm), 
-                            optax.adam(lr))
+                            optax.adam(behaviour_lr))
 
     key, *agents_subkeyReset = jax.random.split(key, n_agents+1)
     agents_subkeyReset = jnp.asarray(agents_subkeyReset)
@@ -187,6 +191,23 @@ def train_once(key):
         for _ in range(n_epochs):
             key, permutation_key = jax.random.split(key)
 
+            (carry["behaviour_params"], carry["behaviour_optimizer_state"], _, 
+            _, _, _, _, _) = batch_epoch(
+                                                        behaviour_batch,
+                                                        permutation_key,
+                                                        carry["behaviour_params"], 
+                                                        behaviour_model,
+                                                        carry["behaviour_optimizer_state"],
+                                                        behaviour_optimizer,
+                                                        n_actions,
+                                                        horizon,
+                                                        n_agents,
+                                                        minibatch_size,
+                                                        val_loss_coeff,
+                                                        entropy_coeff,
+                                                        normalize_advantages,
+                                                        clip_epsilon*alpha)
+            
             (carry["model_params"], carry["optimizer_state"], minibatch_losses, 
             ppo_losses, val_losses, ent_bonuses, clip_trigger_fracs, approx_kls) = batch_epoch(
                                                         corrected_batch,
@@ -204,23 +225,6 @@ def train_once(key):
                                                         normalize_advantages,
                                                         clip_epsilon*alpha)
             
-            (carry["behaviour_params"], carry["behaviour_optimizer_state"], _, 
-            _, _, _, _, _) = batch_epoch(
-                                                        behaviour_batch,
-                                                        permutation_key,
-                                                        carry["behaviour_params"], 
-                                                        behaviour_model,
-                                                        carry["behaviour_optimizer_state"],
-                                                        behaviour_optimizer,
-                                                        n_actions,
-                                                        horizon,
-                                                        n_agents,
-                                                        minibatch_size,
-                                                        val_loss_coeff,
-                                                        entropy_coeff,
-                                                        normalize_advantages,
-                                                        clip_epsilon*alpha)
-
         carry["key"] = key
         append_to["minibatch_losses"] = jnp.mean(minibatch_losses)
         append_to["ppo_losses"] = jnp.mean(ppo_losses)
