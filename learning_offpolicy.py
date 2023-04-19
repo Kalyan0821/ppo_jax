@@ -158,23 +158,23 @@ def batch_advantages_and_returns(values: jnp.array,
     assert rewards.shape == next_is_terminal.shape == (horizon, n_agents)
     assert values.shape == (horizon + 1, n_agents)
 
-    initial_carry = {"next_advantage": jnp.zeros((n_agents,))}
+    initial_carry = {"next_advantage": jnp.zeros(n_agents)}
     def scan_function(carry, t):
-        next_value = jnp.where(next_is_terminal[t], jnp.zeros((n_agents,)), values[t+1])
-        next_advantage = jnp.where(next_is_terminal[t], jnp.zeros((n_agents,)), carry["next_advantage"])
+        next_value = jnp.where(next_is_terminal[t, :], jnp.zeros(n_agents), values[t+1, :])
+        next_advantage = jnp.where(next_is_terminal[t, :], jnp.zeros(n_agents), carry["next_advantage"])
 
-        RHO = 1.0
-        # RHO = old_by_behaviour_likelihood_ratios[t]
+        # RHO = 1.0
+        RHO = old_by_behaviour_likelihood_ratios[t, :]
 
         # td_error = RHO*(rewards[t] + discount*next_value) - values[t]
         # advantage = td_error + (discount*gae_lambda)*RHO*next_advantage
         # bootstrap_return = advantage + values[t]
         # corrected_advantage = bootstrap_return/(RHO + 1e-8) - values[t]
 
-        temp = rewards[t] + discount*next_value + (discount*gae_lambda)*next_advantage
+        temp = rewards[t, :] + discount*next_value + (discount*gae_lambda)*next_advantage
         bootstrap_return = RHO*temp
-        advantage = bootstrap_return - values[t]
-        corrected_advantage = temp - values[t]
+        advantage = bootstrap_return - values[t, :]
+        corrected_advantage = temp - values[t, :]
 
 
         append_to = {"corrected_advantages": corrected_advantage,
@@ -280,11 +280,6 @@ def sample_batch(agents_stateFeature: jnp.array,
 
     old_by_behaviour_likelihood_ratios = jnp.exp(batch["old_policy_log_likelihoods"] - batch["behaviour_log_likelihoods"])
     assert old_by_behaviour_likelihood_ratios.shape == (horizon, n_agents)
-
-
-
-    # jax.debug.print("{}", jnp.mean(old_by_behaviour_likelihood_ratios))
-
 
     # Both: (horizon, n_agents)
     batch["corrected_advantages"], batch["corrected_bootstrap_returns"] = batch_advantages_and_returns(

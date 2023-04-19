@@ -57,12 +57,6 @@ print("Minibatches per epoch:", n_iters_per_epoch)
 print("Outer steps:", n_outer_iters, '\n')
 
 ################# CAN VMAP OVER CHOICES OF: #################
-
-config["offpolicy_alpha"] = 0
-
-
-offpolicy_alpha = config["offpolicy_alpha"]
-assert 0 <= offpolicy_alpha <= 1
 clip_epsilon = config["clip_epsilon"]
 entropy_coeff = config["entropy_coeff"]
 val_loss_coeff = config["val_loss_coeff"]
@@ -134,9 +128,11 @@ def train_once(key):
             key, key_eval = jax.random.split(carry["key"])
             returns = evaluate(env, key_eval, carry["model_params"], model, n_actions, n_eval_agents, eval_discount)
             # returns = evaluate(env, key_eval, carry["behaviour_params"], behaviour_model, n_actions, n_eval_agents, eval_discount)
-
             avg_return, std_return = jnp.mean(returns), jnp.std(returns)
-            return avg_return, std_return, key            
+            jax.debug.print("{}  {}\n", avg_return, std_return)
+
+            
+            return avg_return, std_return, key  
         def f_false(carry):
             if "Acrobot" in env_name or "CartPole" in env_name or "Mountain" in env_name:
                 return -1.0, -1.0, carry["key"]
