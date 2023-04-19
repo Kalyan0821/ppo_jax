@@ -144,31 +144,31 @@ def batch_epoch(batch: dict[str, jnp.array],
     return (carry["model_params"], carry["optimizer_state"], *result)
 
 
-@partial(jax.jit, static_argnums=(4,))
-@partial(jax.vmap, in_axes=(1, 1, 1, 1, None, None, None), out_axes=(1, 1))
+@partial(jax.jit, static_argnums=(4, 5))
 def batch_advantages_and_returns(values: jnp.array,
                                  rewards: jnp.array,
                                  next_is_terminal: jnp.array,
                                  old_by_behaviour_likelihood_ratios: jnp.array,
                                  horizon: int,
+                                 n_agents: int,
                                  discount: float,
                                  gae_lambda: float):
     
-    assert rewards.shape == next_is_terminal.shape == (horizon,)
-    assert values.shape == (horizon + 1,)
+    assert rewards.shape == next_is_terminal.shape == (horizon, n_agents)
+    assert values.shape == (horizon + 1, n_agents)
 
-    initial_carry = {"next_advantage": 0.}
+    initial_carry = {"next_advantage": jnp.zeros(n_agents)}
     def scan_function(carry, t):
-        next_value = jnp.where(next_is_terminal[t], 0., values[t+1])
-        next_advantage = jnp.where(next_is_terminal[t], 0., carry["next_advantage"])
+        next_value = jnp.where(next_is_terminal[t, :], jnp.zeros(n_agents), values[t+1, :])
+        next_advantage = jnp.where(next_is_terminal[t, :], jnp.zeros(n_agents), carry["next_advantage"])
 
-        RHO = old_by_behaviour_likelihood_ratios[t]
-        td_error = RHO*(rewards[t] + discount*next_value) - values[t]
-        advantage = td_error + (discount*gae_lambda)*RHO*next_advantage
-        bootstrap_return = advantage + values[t]
-        corrected_advantage = bootstrap_return/(RHO + 1e-8) - values[t]
+        RHO = old_by_behaviour_likelihood_ratios[t, :]
+        temp = rewards[t, :] + discount*next_value + (discount*gae_lambda)*next_advantage
+        bootstrap_return = RHO*temp
+        advantage = bootstrap_return - values[t, :]
+        corrected_advantage = temp - values[t, :]
 
-        append_to = {"corrected_advantages": corrected_advantage, 
+        append_to = {"corrected_advantages": corrected_advantage,
                      "bootstrap_returns": bootstrap_return}
         
         carry["next_advantage"] = advantage
@@ -272,6 +272,7 @@ def sample_batch(agents_stateFeature: jnp.array,
                                                                 batch["nextTerminals"],
                                                                 old_by_behaviour_likelihood_ratios,
                                                                 horizon,
+                                                                n_agents,
                                                                 discount,
                                                                 gae_lambda)
     assert batch["corrected_advantages"].shape == batch["bootstrap_returns"].shape == (horizon, n_agents)
