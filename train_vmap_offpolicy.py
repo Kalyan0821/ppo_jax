@@ -127,9 +127,11 @@ def train_once(key):
         def f_true(carry):
             key, key_eval = jax.random.split(carry["key"])
             returns = evaluate(env, key_eval, carry["model_params"], model, n_actions, n_eval_agents, eval_discount)
-            # returns = evaluate(env, key_eval, carry["behaviour_params"], behaviour_model, n_actions, n_eval_agents, eval_discount)
+            returnsb = evaluate(env, key_eval, carry["behaviour_params"], model, n_actions, n_eval_agents, eval_discount)
             avg_return, std_return = jnp.mean(returns), jnp.std(returns)
-            jax.debug.print("{}  {}\n", avg_return, std_return)
+            avg_returnb, std_returnb = jnp.mean(returnsb), jnp.std(returnsb)
+            jax.debug.print("{}  {}", avg_return, std_return)
+            jax.debug.print("{}  {}\n", avg_returnb, std_returnb)
 
             
             return avg_return, std_return, key  
@@ -196,7 +198,7 @@ def train_once(key):
                                                         entropy_coeff,
                                                         normalize_advantages,
                                                         clip_epsilon*alpha)
-            
+
             (carry["model_params"], carry["optimizer_state"], minibatch_losses, 
             ppo_losses, val_losses, ent_bonuses, clip_trigger_fracs, approx_kls) = batch_epoch(
                                                         corrected_batch,
@@ -212,16 +214,16 @@ def train_once(key):
                                                         val_loss_coeff,
                                                         entropy_coeff,
                                                         normalize_advantages,
-                                                        clip_epsilon*alpha)
+                                                        1.1*clip_epsilon*alpha)
             
 
 
 
-            diff = jax.tree_map(lambda x, y: jnp.mean(x-y), carry["model_params"], carry["behaviour_params"])
-            flat_diffs = jax.tree_util.tree_flatten(diff)
-            jax.debug.print("{}\n{}\n", e, jnp.array(flat_diffs[0]))
+        #     diff = jax.tree_map(lambda x, y: jnp.mean(x-y), carry["model_params"], carry["behaviour_params"])
+        #     flat_diffs = jax.tree_util.tree_flatten(diff)
+        #     jax.debug.print("{}\n{}\n", e, jnp.array(flat_diffs[0]))
             
-        jax.debug.print("{}-----------------------------", idx)
+        # jax.debug.print("{}-----------------------------", idx)
 
 
 
@@ -241,9 +243,13 @@ def train_once(key):
     # One more eval
     _, key_eval = jax.random.split(carry["key"])
     returns = evaluate(env, key_eval, carry["model_params"], model, n_actions, n_eval_agents, eval_discount)
-    # returns = evaluate(env, key_eval, carry["behaviour_params"], behaviour_model, n_actions, n_eval_agents, eval_discount)
 
+    returnsb = evaluate(env, key_eval, carry["behaviour_params"], model, n_actions, n_eval_agents, eval_discount)
     avg_return, std_return = jnp.mean(returns), jnp.std(returns)
+    avg_returnb, std_returnb = jnp.mean(returnsb), jnp.std(returnsb)
+    jax.debug.print("{}  {}", avg_return, std_return)
+    jax.debug.print("{}  {}\n", avg_returnb, std_returnb)
+
     result["steps"] = jnp.append(result["steps"], result["steps"][-1] + 1)    
     result["experiences"] = jnp.append(result["experiences"], result["experiences"][-1] + n_agents*horizon)
     result["avg_returns"] = jnp.append(result["avg_returns"], avg_return)
@@ -270,7 +276,7 @@ if __name__ == "__main__":
     #                        "alpha": jnp.array( [0.7, 0.8, 0.9, 1.0] ),
     #                        "clip": jnp.array( [0.008, 0.02, 0.08, 0.2, 0.5, 1e6] )})
     ##############################################
-    WANDB = True
+    WANDB = False
     SAVE_ARRAY = False
 
     hparam_names = list(hparams.keys())

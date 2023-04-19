@@ -60,9 +60,13 @@ def loss_function(model_params: FrozenDict,
 
     policy_gradient_losses = policy_by_behaviour_likelihood_ratios * corrected_advantages  # (minibatch_size,)
     reg_losses = old_by_behaviour_likelihood_ratios * nn.relu((likelihood_ratios-clip_likelihood_ratios) * corrected_advantages)
+    # reg_losses = nn.relu((likelihood_ratios-clip_likelihood_ratios) * corrected_advantages)
     
     ppo_loss = -1. * jnp.mean(policy_gradient_losses - reg_losses)
-    val_loss = 0.5 * jnp.mean((values-corrected_bootstrap_returns)**2)    
+    # val_loss = 0.5 * jnp.mean((values-corrected_bootstrap_returns)**2)
+    val_loss = 0.5 * jnp.mean((old_by_behaviour_likelihood_ratios*values - corrected_bootstrap_returns)**2)
+
+
     entropy_bonus = jnp.mean(-jnp.exp(policy_log_probs)*policy_log_probs) * n_actions
 
     loss = ppo_loss + val_loss_coeff*val_loss - entropy_coeff*entropy_bonus
@@ -163,8 +167,11 @@ def batch_advantages_and_returns(values: jnp.array,
         next_value = jnp.where(next_is_terminal[t, :], jnp.zeros(n_agents), values[t+1, :])
         next_advantage = jnp.where(next_is_terminal[t, :], jnp.zeros(n_agents), carry["next_advantage"])
 
-        # RHO = 1.0
+        # RHO = 1
         RHO = old_by_behaviour_likelihood_ratios[t, :]
+
+        # RHO = jnp.clip(old_by_behaviour_likelihood_ratios[t, :], a_min=0, a_max=5)
+
 
         # td_error = RHO*(rewards[t] + discount*next_value) - values[t]
         # advantage = td_error + (discount*gae_lambda)*RHO*next_advantage
@@ -281,6 +288,8 @@ def sample_batch(agents_stateFeature: jnp.array,
     old_by_behaviour_likelihood_ratios = jnp.exp(batch["old_policy_log_likelihoods"] - batch["behaviour_log_likelihoods"])
     assert old_by_behaviour_likelihood_ratios.shape == (horizon, n_agents)
 
+
+
     # Both: (horizon, n_agents)
     batch["corrected_advantages"], batch["corrected_bootstrap_returns"] = batch_advantages_and_returns(
                                                                 batch["values"],
@@ -303,6 +312,23 @@ def sample_batch(agents_stateFeature: jnp.array,
                                                                 gae_lambda)
 
     assert batch["corrected_advantages"].shape == batch["corrected_bootstrap_returns"].shape == (horizon, n_agents)
+
+    # jax.debug.print("RHO:\n{}", jnp.mean(old_by_behaviour_likelihood_ratios, axis=1))
+
+    # jax.debug.print("corrected_advantages:\n{}", jnp.mean(batch["corrected_advantages"], axis=1))
+    # jax.debug.print("corrected_bootstrap_returns:\n{}", jnp.mean(batch["corrected_bootstrap_returns"], axis=1))
+    # jax.debug.print("behaviour_advantages:\n{}", jnp.mean(batch["behaviour_advantages"], axis=1))
+    # jax.debug.print("behaviour_bootstrap_returns:\n{}", jnp.mean(batch["behaviour_bootstrap_returns"], axis=1))
+
+
+
+
+
+
+
+
+
+
 
     return_keys = ["states", "actions", "old_policy_log_likelihoods", "behaviour_log_likelihoods", "corrected_advantages", "behaviour_advantages", "corrected_bootstrap_returns", "behaviour_bootstrap_returns"]
     return_batch = {k: batch[k] for k in return_keys}
