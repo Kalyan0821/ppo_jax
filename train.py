@@ -68,7 +68,7 @@ eval_discount = config["eval_discount"]
 #############################################################
 
 WANDB = False
-SAVE_MODEL = True
+SAVE_MODEL = False
 
 if WANDB:
     wandb.init(project="ppo", 
