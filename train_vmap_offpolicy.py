@@ -124,29 +124,31 @@ def train_once(key):
                      "agents_stateFeature": agents_stateFeature,
                      "agents_state": agents_state}
     def scan_function(carry, idx):
-        def f_true(carry):
-            key, key_eval = jax.random.split(carry["key"])
+
+        def f_true(carry, key):
+            jax.debug.print("{}", idx)
+            key, key_eval = jax.random.split(key)
             returns = evaluate(env, key_eval, carry["model_params"], model, n_actions, n_eval_agents, eval_discount)
             returnsb = evaluate(env, key_eval, carry["behaviour_params"], model, n_actions, n_eval_agents, eval_discount)
             avg_return, std_return = jnp.mean(returns), jnp.std(returns)
             avg_returnb, std_returnb = jnp.mean(returnsb), jnp.std(returnsb)
-            jax.debug.print("{}  {}", avg_return, std_return)
-            jax.debug.print("{}  {}\n", avg_returnb, std_returnb)
-
-            
-            return avg_return, std_return, key  
-        def f_false(carry):
+            jax.debug.print("Policy: {}  {}", avg_return, std_return)
+            jax.debug.print("Behaviour: {}  {}\n", avg_returnb, std_returnb)
+            return avg_return, std_return, key
+        
+        def f_false(carry, key):
             if "Acrobot" in env_name or "CartPole" in env_name or "Mountain" in env_name:
-                return -1.0, -1.0, carry["key"]
+                return -1.0, -1.0, key
             return jnp.array(-1.0, dtype=jnp.float32), jnp.array(-1.0, dtype=jnp.float32), carry["key"]
-
 
         append_to = dict()
         append_to["steps"], append_to["experiences"] = idx, idx*n_agents*horizon
-        append_to["avg_returns"], append_to["std_returns"], key = jax.lax.cond(idx % eval_iter == 0, f_true, f_false, carry)
+        append_to["avg_returns"], append_to["std_returns"], key = jax.lax.cond(idx % eval_iter == 0, f_true, f_false, carry, carry["key"])
 
+        alpha = jnp.where(anneal, (1-idx/n_outer_iters), 1.0)
 
-        carry["agents_stateFeature"], carry["agents_state"], batch, key = sample_batch(carry["agents_stateFeature"],
+        carry["agents_stateFeature"], carry["agents_state"], batch, key = sample_batch(
+                                                                    carry["agents_stateFeature"],
                                                                     carry["agents_state"],
                                                                     vecEnv_step,
                                                                     key,
@@ -158,47 +160,48 @@ def train_once(key):
                                                                     n_agents,
                                                                     discount,
                                                                     gae_lambda)
-        
+        # (agents_stateFeature, agents_state) returned were the last ones seen in this step, and will initialize the next step
+        assert carry["agents_stateFeature"].shape[0] == n_agents
+                
         corrected_batch = {"states": batch["states"],
                            "actions": batch["actions"],
                            "old_policy_log_likelihoods": batch["old_policy_log_likelihoods"],
                            "behaviour_log_likelihoods": batch["behaviour_log_likelihoods"],
                            "corrected_advantages": batch["corrected_advantages"],
                            "corrected_bootstrap_returns": batch["corrected_bootstrap_returns"]}
-        
+    
         behaviour_batch = {"states": batch["states"],
-                           "actions": batch["actions"],
-                           "old_policy_log_likelihoods": batch["behaviour_log_likelihoods"],
-                           "behaviour_log_likelihoods": batch["behaviour_log_likelihoods"],
-                           "corrected_advantages": batch["behaviour_advantages"],
-                           "corrected_bootstrap_returns": batch["behaviour_bootstrap_returns"]}
-        
+                            "actions": batch["actions"],
+                            "old_policy_log_likelihoods": batch["behaviour_log_likelihoods"],
+                            "behaviour_log_likelihoods": batch["behaviour_log_likelihoods"],
+                            "corrected_advantages": batch["behaviour_advantages"],
+                            "corrected_bootstrap_returns": batch["behaviour_bootstrap_returns"]}
 
-        # (agents_stateFeature, agents_state) returned were the last ones seen in this step, and will initialize the next step
-        assert carry["agents_stateFeature"].shape[0] == n_agents
-
-        alpha = jnp.where(anneal, (1-idx/n_outer_iters), 1.0)
-
-        for e in range(n_epochs):
-            key, permutation_key = jax.random.split(key)
-
+        def g_true(carry, behaviour_batch, permutation_key):
+            # jax.debug.print("Updating behaviour ...")
             (carry["behaviour_params"], carry["behaviour_optimizer_state"], _, 
-            _, _, _, _, _) = batch_epoch(
-                                                        behaviour_batch,
-                                                        permutation_key,
-                                                        carry["behaviour_params"], 
-                                                        model,
-                                                        carry["behaviour_optimizer_state"],
-                                                        behaviour_optimizer,
-                                                        n_actions,
-                                                        horizon,
-                                                        n_agents,
-                                                        minibatch_size,
-                                                        val_loss_coeff,
-                                                        entropy_coeff,
-                                                        normalize_advantages,
-                                                        clip_epsilon*alpha)
+            _, _, _, _, _) = batch_epoch(behaviour_batch,
+                                         permutation_key,
+                                         carry["behaviour_params"], 
+                                         model,
+                                         carry["behaviour_optimizer_state"],
+                                         behaviour_optimizer,
+                                         n_actions,
+                                         horizon,
+                                         n_agents,
+                                         minibatch_size,
+                                         val_loss_coeff,
+                                         entropy_coeff,
+                                         normalize_advantages,
+                                         clip_epsilon*alpha)
+            return carry
+        def g_false(carry, behaviour_batch, permutation_key):
+            return carry
 
+        for _ in range(n_epochs):
+            key, permutation_key = jax.random.split(key)
+            
+            # Off-policy update
             (carry["model_params"], carry["optimizer_state"], minibatch_losses, 
             ppo_losses, val_losses, ent_bonuses, clip_trigger_fracs, approx_kls) = batch_epoch(
                                                         corrected_batch,
@@ -214,17 +217,11 @@ def train_once(key):
                                                         val_loss_coeff,
                                                         entropy_coeff,
                                                         normalize_advantages,
-                                                        1.1*clip_epsilon*alpha)
+                                                        0.0001*clip_epsilon*alpha)
             
-
-
-
-        #     diff = jax.tree_map(lambda x, y: jnp.mean(x-y), carry["model_params"], carry["behaviour_params"])
-        #     flat_diffs = jax.tree_util.tree_flatten(diff)
-        #     jax.debug.print("{}\n{}\n", e, jnp.array(flat_diffs[0]))
-            
-        # jax.debug.print("{}-----------------------------", idx)
-
+            # On-policy update
+            carry = jax.lax.cond(jnp.logical_and(idx % 200 == 0, idx >= 1), 
+                                 g_true, g_false, carry, behaviour_batch, permutation_key)
 
 
         carry["key"] = key
@@ -247,8 +244,8 @@ def train_once(key):
     returnsb = evaluate(env, key_eval, carry["behaviour_params"], model, n_actions, n_eval_agents, eval_discount)
     avg_return, std_return = jnp.mean(returns), jnp.std(returns)
     avg_returnb, std_returnb = jnp.mean(returnsb), jnp.std(returnsb)
-    jax.debug.print("{}  {}", avg_return, std_return)
-    jax.debug.print("{}  {}\n", avg_returnb, std_returnb)
+    jax.debug.print("Policy: {}  {}", avg_return, std_return)
+    jax.debug.print("Behaviour: {}  {}\n", avg_returnb, std_returnb)
 
     result["steps"] = jnp.append(result["steps"], result["steps"][-1] + 1)    
     result["experiences"] = jnp.append(result["experiences"], result["experiences"][-1] + n_agents*horizon)
