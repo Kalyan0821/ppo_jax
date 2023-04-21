@@ -7,7 +7,7 @@ import argparse
 import json
 from flax.training.checkpoints import restore_checkpoint
 from model import NN, SeparateNN, PerturbedModel
-from learning_offpolicy import sample_batch, batch_epoch
+from learning_sync import sample_batch, batch_epoch
 from test import evaluate
 from functools import partial
 from collections import OrderedDict
