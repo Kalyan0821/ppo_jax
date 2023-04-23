@@ -39,8 +39,6 @@ activation = config["activation"]
 n_eval_agents = config["n_eval_agents"]
 eval_iter = config["eval_iter"]
 
-behaviour_params = restore_checkpoint("./saved_models", None, 0, prefix=env_name+'_')
-
 env, env_params = gymnax.make(env_name)
 vecEnv_reset = jax.vmap(env.reset, in_axes=(0,))
 vecEnv_step = jax.vmap(env.step, in_axes=(0, 0, 0))
