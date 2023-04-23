@@ -7,7 +7,7 @@ import argparse
 import json
 from model import StopNN, StopSeparateNN
 from learning_stopgrad import sample_batch, batch_epoch
-from test import evaluate
+from test_stopgrad import evaluate
 from functools import partial
 from collections import OrderedDict
 import wandb
@@ -218,7 +218,8 @@ if __name__ == "__main__":
     if WANDB:
         wandb.init(project="ppo_baselines", 
                    config=config,
-                   name=env_name+'-'+datetime.datetime.now().strftime("%d.%m-%H:%M"))            
+                   name=env_name+'-'+datetime.datetime.now().strftime("%d.%m-%H:%M"),
+                   notes="Stopgrad")
         npmean = lambda x: np.mean(np.array(x))
         npstd = lambda x: np.std(np.array(x))
         if len(hparams) == 1:

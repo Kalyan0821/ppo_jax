@@ -162,12 +162,13 @@ class StopSeparateNN(nn.Module):
             actor_x = nn.Dense(features=size, name=f"dense_{l+1}_policy")(actor_x)
             actor_x = activation(actor_x)
         detached_actor_x = jax.lax.stop_gradient(actor_x)
-
+        
         behaviour_layer = nn.Dense(features=self.n_actions, name="logits")
+        
         policy_logits = behaviour_layer(actor_x)
-        detached_policy_logits = behaviour_layer(detached_actor_x)
-
         policy_log_probs = nn.log_softmax(policy_logits)
+        
+        detached_policy_logits = behaviour_layer(detached_actor_x)
         detached_policy_log_probs = nn.log_softmax(detached_policy_logits)
 
         # Critic

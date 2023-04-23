@@ -30,7 +30,7 @@ def loss_function(model_params: FrozenDict,
     # (minibatch_size, n_actions), (minibatch_size, 1)
     policy_log_probs, detached_policy_log_probs, values = model.apply(model_params, states)
     values = jnp.squeeze(values, axis=-1)
-    assert policy_log_probs.shape == (minibatch_size, n_actions)
+    assert policy_log_probs.shape == detached_policy_log_probs.shape == (minibatch_size, n_actions)
     assert values.shape == (minibatch_size,)
 
     # (m, a) x (m,) => (m,) 
@@ -51,7 +51,7 @@ def loss_function(model_params: FrozenDict,
                                          a_min=1-clip_epsilon, a_max=1+clip_epsilon)
 
 
-    clip_trigger_frac = jnp.mean(jnp.abs(likelihood_ratios-1) > clip_epsilon)
+    clip_trigger_frac = jnp.mean(jnp.abs(detached_likelihood_ratios-1) > clip_epsilon)
     # Approximate avg. KL(old || new), from John Schulman blog
     approx_kl = jnp.mean(-log_likelihood_ratios + likelihood_ratios-1)
     
