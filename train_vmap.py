@@ -68,12 +68,12 @@ eval_discount = config["eval_discount"]
 #############################################################
 
 @jax.jit
-@partial(jax.vmap, in_axes=(0,))
-def train_once(key):
-# @partial(jax.vmap, in_axes=(0, None, None))
-# @partial(jax.vmap, in_axes=(None, 0, None))
-# @partial(jax.vmap, in_axes=(None, None, 0))
-# def train_once(key, entropy_coeff, clip_epsilon):
+# @partial(jax.vmap, in_axes=(0,))
+# def train_once(key):
+@partial(jax.vmap, in_axes=(0, None, None))
+@partial(jax.vmap, in_axes=(None, 0, None))
+@partial(jax.vmap, in_axes=(None, None, 0))
+def train_once(key, entropy_coeff, clip_epsilon):
     """ To vmap over a hparam, include it as an argument and 
     modify the decorators appropriately """
 
@@ -191,16 +191,13 @@ if __name__ == "__main__":
 
 
     ################# VMAP OVER: #################
-    hparams = OrderedDict({"keys": keys})
-    # hparams = OrderedDict({"keys": keys, 
-    #                        "ent": jnp.array( [0.0, 0.01, 0.1, 0.5] ),
-    #                        "clip": jnp.array( [0.02, 0.08, 0.2, 0.5, 0.8, 1e6] )})
-    # hparams = OrderedDict({"keys": keys, 
-    #                        "ent": jnp.array( [0.01] ),
-    #                        "clip": jnp.array( [0.02, 0.08, 0.2, 0.5, 0.8, 1e6] )})
+    # hparams = OrderedDict({"keys": keys})
+    hparams = OrderedDict({"keys": keys, 
+                           "ent": jnp.array( [0.0, 0.01, 0.1, 0.4, 0.8] ),
+                           "clip": jnp.array( [0.005, 0.02, 0.08, 0.2, 0.5, 0.8, 1e6] )})
     ##############################################
-    WANDB = True
-    SAVE_ARRAY = False
+    WANDB = False
+    SAVE_ARRAY = True
 
     hparam_names = list(hparams.keys())
     assert hparam_names[0] == "keys"
