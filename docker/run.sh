@@ -1,1 +1,1 @@
-docker run -it --name flair_jax -v /homes/cdt22/kalyanr/ppo_jax:/ppo_jax --gpus device=0 kalyan_image
+docker run -it --name flair_jax_0 -v /homes/cdt22/kalyanr/ppo_jax:/ppo_jax --gpus device=0 kalyan_image
