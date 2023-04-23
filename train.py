@@ -10,7 +10,7 @@ import json
 import wandb
 import datetime
 from model import NN, SeparateNN
-from learning import sample_batch, batch_epoch
+from learning_stopgrad import sample_batch, batch_epoch
 from test import evaluate
 from jax.config import config as cfg
 cfg.update("jax_enable_x64", True)  # to ensure vmap/non-vmap consistency

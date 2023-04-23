@@ -5,8 +5,8 @@ import jax.numpy as jnp
 import numpy as np
 import argparse
 import json
-from model import NN, SeparateNN
-from learning import sample_batch, batch_epoch
+from model import StopNN, StopSeparateNN
+from learning_stopgrad import sample_batch, batch_epoch
 from test import evaluate
 from functools import partial
 from collections import OrderedDict
@@ -68,22 +68,22 @@ eval_discount = config["eval_discount"]
 #############################################################
 
 @jax.jit
-# @partial(jax.vmap, in_axes=(0,))
-# def train_once(key):
-@partial(jax.vmap, in_axes=(0, None, None))
-@partial(jax.vmap, in_axes=(None, 0, None))
-@partial(jax.vmap, in_axes=(None, None, 0))
-def train_once(key, entropy_coeff, clip_epsilon):
+@partial(jax.vmap, in_axes=(0,))
+def train_once(key):
+# @partial(jax.vmap, in_axes=(0, None, None))
+# @partial(jax.vmap, in_axes=(None, 0, None))
+# @partial(jax.vmap, in_axes=(None, None, 0))
+# def train_once(key, entropy_coeff, clip_epsilon):
     """ To vmap over a hparam, include it as an argument and 
     modify the decorators appropriately """
 
     if architecture == "shared":
-        model = NN(hidden_layer_sizes=hidden_layer_sizes, 
+        model = StopNN(hidden_layer_sizes=hidden_layer_sizes, 
                 n_actions=n_actions, 
                 single_input_shape=example_state_feature.shape,
                 activation=activation)
     elif architecture == "separate":
-        model = SeparateNN(hidden_layer_sizes=hidden_layer_sizes, 
+        model = StopSeparateNN(hidden_layer_sizes=hidden_layer_sizes, 
                         n_actions=n_actions, 
                         single_input_shape=example_state_feature.shape,
                         activation=activation)
@@ -191,13 +191,13 @@ if __name__ == "__main__":
 
 
     ################# VMAP OVER: #################
-    # hparams = OrderedDict({"keys": keys})
-    hparams = OrderedDict({"keys": keys, 
-                           "ent": jnp.array( [0.0, 0.01, 0.05, 0.1, 0.4, 0.8] ),
-                           "clip": jnp.array( [0.005, 0.02, 0.08, 0.2, 0.5, 0.8, 1e6] )})
+    hparams = OrderedDict({"keys": keys})
+    # hparams = OrderedDict({"keys": keys, 
+    #                        "ent": jnp.array( [0.0, 0.01, 0.05, 0.1, 0.4, 0.8] ),
+    #                        "clip": jnp.array( [0.005, 0.02, 0.08, 0.2, 0.5, 0.8, 1e6] )})
     ##############################################
-    WANDB = False
-    SAVE_ARRAY = True
+    WANDB = True
+    SAVE_ARRAY = False
 
     hparam_names = list(hparams.keys())
     assert hparam_names[0] == "keys"

@@ -3,10 +3,12 @@ import optax
 import jax.numpy as jnp
 from functools import partial
 from flax.core.frozen_dict import FrozenDict
+import flax.linen as nn
 from model import NN
 from typing import Callable
 from jax.config import config as cfg
 cfg.update("jax_enable_x64", True)  # to ensure vmap/non-vmap consistency
+
 
 def loss_function(model_params: FrozenDict,
                   minibatch: dict[str, jnp.array],
@@ -26,7 +28,7 @@ def loss_function(model_params: FrozenDict,
     assert states.shape[0] == minibatch_size
 
     # (minibatch_size, n_actions), (minibatch_size, 1)
-    policy_log_probs, values = model.apply(model_params, states)
+    policy_log_probs, detached_policy_log_probs, values = model.apply(model_params, states)
     values = jnp.squeeze(values, axis=-1)
     assert policy_log_probs.shape == (minibatch_size, n_actions)
     assert values.shape == (minibatch_size,)
@@ -36,12 +38,19 @@ def loss_function(model_params: FrozenDict,
     def get_element(vector, idx):
         return vector[idx]    
     policy_log_likelihoods = get_element(policy_log_probs, actions)  # (minibatch_size,)
-    assert policy_log_likelihoods.shape == old_policy_log_likelihoods.shape
+    detached_policy_log_likelihoods = get_element(detached_policy_log_probs, actions)
+    
+    assert policy_log_likelihoods.shape == detached_policy_log_likelihoods.shape == old_policy_log_likelihoods.shape
 
     log_likelihood_ratios = policy_log_likelihoods - old_policy_log_likelihoods
     likelihood_ratios = jnp.exp(log_likelihood_ratios)
-    clip_likelihood_ratios = jnp.clip(likelihood_ratios, 
+
+    detached_log_likelihood_ratios = detached_policy_log_likelihoods - old_policy_log_likelihoods
+    detached_likelihood_ratios = jnp.exp(detached_log_likelihood_ratios)
+    detached_clip_likelihood_ratios = jnp.clip(detached_likelihood_ratios, 
                                          a_min=1-clip_epsilon, a_max=1+clip_epsilon)
+
+
     clip_trigger_frac = jnp.mean(jnp.abs(likelihood_ratios-1) > clip_epsilon)
     # Approximate avg. KL(old || new), from John Schulman blog
     approx_kl = jnp.mean(-log_likelihood_ratios + likelihood_ratios-1)
@@ -53,14 +62,14 @@ def loss_function(model_params: FrozenDict,
                            advantages)
 
     policy_gradient_losses = likelihood_ratios * advantages  # (minibatch_size,)
-    clip_losses = clip_likelihood_ratios * advantages
+    detached_reg_losses = nn.relu((detached_likelihood_ratios-detached_clip_likelihood_ratios) * advantages)
 
-    ppo_loss = -1. * jnp.mean(jnp.minimum(policy_gradient_losses, clip_losses))
-    val_loss = 0.5 * jnp.mean((values-bootstrap_returns)**2)    
-    entropy_bonus = jnp.mean(-jnp.exp(policy_log_probs)*policy_log_probs) * n_actions
+    ppo_loss = -1 * jnp.mean(policy_gradient_losses - detached_reg_losses)
+    val_loss = 0.5 * jnp.mean((values-bootstrap_returns)**2)
+    detached_entropy_bonus = jnp.mean(-jnp.exp(detached_policy_log_probs)*detached_policy_log_probs) * n_actions
 
-    loss = ppo_loss + val_loss_coeff*val_loss - entropy_coeff*entropy_bonus
-    return loss, (ppo_loss, val_loss, entropy_bonus, clip_trigger_frac, approx_kl)
+    loss = ppo_loss + val_loss_coeff*val_loss - entropy_coeff*detached_entropy_bonus
+    return loss, (ppo_loss, val_loss, detached_entropy_bonus, clip_trigger_frac, approx_kl)
 
 
 val_and_grad_function = jax.jit(jax.value_and_grad(loss_function, argnums=0, has_aux=True),
@@ -199,7 +208,7 @@ def sample_batch(agents_stateFeature: jnp.array,
                      "key": key}
     def scan_function(carry, x=None):
         # (n_agents, n_actions), (n_agents, 1)
-        agents_logProbs, agents_value = model.apply(model_params, carry["agents_stateFeature"])
+        agents_logProbs, _, agents_value = model.apply(model_params, carry["agents_stateFeature"])
         agents_probs = jnp.exp(agents_logProbs)
         agents_value = jnp.squeeze(agents_value, axis=-1)  # (n_agents,)
         assert agents_probs.shape == (n_agents, n_actions)
@@ -232,7 +241,7 @@ def sample_batch(agents_stateFeature: jnp.array,
     carry, batch = jax.lax.scan(scan_function, initial_carry, xs=None, length=horizon)
 
     # Finally, also get v(S_horizon) for advantage calculation
-    _, agents_value = model.apply(model_params, carry["agents_stateFeature"])
+    _, _, agents_value = model.apply(model_params, carry["agents_stateFeature"])
     agents_value = jnp.squeeze(agents_value, axis=-1)  # (n_agents,)
     batch["values"] = jnp.row_stack((batch["values"],
                                      agents_value))  # (horizon + 1, n_agents), where column = [v_0, v_1, v_2, ..., v_H]
