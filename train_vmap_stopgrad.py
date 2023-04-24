@@ -197,7 +197,7 @@ if __name__ == "__main__":
                            "clip": jnp.array( [0.005, 0.02, 0.08, 0.2, 0.5, 0.8, 1e6] )})
     ##############################################
     WANDB = False
-    SAVE_ARRAY = True
+    SAVE_ARRAY = False
 
     hparam_names = list(hparams.keys())
     assert hparam_names[0] == "keys"
