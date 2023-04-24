@@ -124,6 +124,28 @@ def batch_epoch(batch: dict[str, jnp.array],
                                  reshaped_batch)
         assert minibatch["states"].shape[0] == minibatch_size
 
+        # Plain loss
+        (_, _), gradient = val_and_grad_function(carry["model_params"],
+                                                 minibatch,
+                                                 model,
+                                                 n_actions,
+                                                 minibatch_size,
+                                                 0,
+                                                 0,
+                                                 normalize_advantages,
+                                                 1e6)
+        
+        param_updates, carry["optimizer_state"] = optimizer.update(gradient,
+                                                                   carry["optimizer_state"],
+                                                                   carry["model_params"])
+        carry["model_params"] = optax.apply_updates(carry["model_params"], param_updates)
+
+
+
+
+
+
+        # Total (plain + reg) loss
         (minibatch_loss, loss_info), gradient = val_and_grad_function(carry["model_params"],
                                                                       minibatch,
                                                                       model,
@@ -138,6 +160,21 @@ def batch_epoch(batch: dict[str, jnp.array],
                                                                    carry["optimizer_state"],
                                                                    carry["model_params"])
         carry["model_params"] = optax.apply_updates(carry["model_params"], param_updates)
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
         ppo_loss, val_loss, entropy_bonus, clip_trigger_frac, approx_kl = loss_info
         append = (minibatch_loss, ppo_loss, val_loss, entropy_bonus, clip_trigger_frac, approx_kl)

@@ -6,8 +6,8 @@ import numpy as np
 import argparse
 import json
 from model import StopNN, StopSeparateNN
-from learning_stopgrad import sample_batch, batch_epoch
-from test_stopgrad import evaluate
+from learning_parts import sample_batch, batch_epoch
+from test_parts import evaluate
 from functools import partial
 from collections import OrderedDict
 import wandb
