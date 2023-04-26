@@ -209,14 +209,14 @@ if __name__ == "__main__":
     # Save for plotting
     if SAVE_ARRAY and len(hparams) == 3:
         save_indices = result["std_returns"][(0,)*len(hparams)] > -0.5
-        with open(f"./plotting/{env_name}.npy", 'wb') as f:
+        with open(f"./plotting/shared/{env_name}.npy", 'wb') as f:
             np.save(f, result["avg_returns"][..., save_indices])
-        with open(f"./plotting/{env_name}_exps.npy", 'wb') as f:
+        with open(f"./plotting/shared/{env_name}_exps.npy", 'wb') as f:
             np.save(f, result["experiences"][(0,)*len(hparams)+(save_indices,)])
 
     # Log to wandb:
     if WANDB:
-        wandb.init(project="ppo_baselines", 
+        wandb.init(project="ppo_baselines_shared", 
                    config=config,
                    name=env_name+'-'+datetime.datetime.now().strftime("%d.%m-%H:%M"))            
         npmean = lambda x: np.mean(np.array(x))

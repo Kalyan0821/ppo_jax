@@ -1,0 +1,28 @@
+{
+"env_name": "Freeway-MinAtar",
+"SEED": 42,
+"N_SEEDS": 8,
+
+"total_experience": 20000000,
+"lr_begin": 5e-4,
+"lr_end": 5e-4,
+"n_agents": 64,
+"horizon": 128,
+"n_epochs": 4,
+"minibatch_size": 1024,
+"hidden_layer_sizes": [256, 256],
+"architecture": "shared",
+"activation": "relu",
+
+"clip_epsilon": 0.2,
+"entropy_coeff": 0.01,
+"val_loss_coeff": 0.5,
+"clip_grad": 0.5,
+"gae_lambda": 0.95,
+"anneal_epsilon": false,
+"normalize_advantages": false,
+
+"discount": 0.999,
+"eval_discount": 1.0,
+"n_eval_agents": 16,
+"eval_iter": 40}
