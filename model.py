@@ -1,4 +1,3 @@
-import jax
 import flax.linen as nn
 import jax.numpy as jnp
 from flax.core.frozen_dict import FrozenDict
@@ -39,10 +38,10 @@ class NN(nn.Module):
             x = activation(x)
 
         # Output layers
-        policy_logits = nn.Dense(features=self.n_actions, name="out_logits")(x)
+        policy_logits = nn.Dense(features=self.n_actions, name="logits")(x)
         policy_log_probs = nn.log_softmax(policy_logits)
 
-        value = nn.Dense(features=1, name="out_value")(x)
+        value = nn.Dense(features=1, name="value")(x)
 
         return policy_log_probs, value  # (n_actions,), (1,)
     
@@ -83,7 +82,7 @@ class SeparateNN(nn.Module):
             actor_x = nn.Dense(features=size, name=f"dense_{l+1}_policy")(actor_x)
             actor_x = activation(actor_x)
 
-        policy_logits = nn.Dense(features=self.n_actions, name="out_logits")(actor_x)
+        policy_logits = nn.Dense(features=self.n_actions, name="logits")(actor_x)
         policy_log_probs = nn.log_softmax(policy_logits)
 
 
@@ -92,7 +91,7 @@ class SeparateNN(nn.Module):
             critic_x = nn.Dense(features=size, name=f"dense_{l+1}_value")(critic_x)
             critic_x = activation(critic_x)
 
-        value = nn.Dense(features=1, name="out_value")(critic_x)
+        value = nn.Dense(features=1, name="value")(critic_x)
 
         # Return
         return policy_log_probs, value  # (n_actions,), (1,)

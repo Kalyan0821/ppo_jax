@@ -126,7 +126,7 @@ def batch_epoch(batch: dict[str, jnp.array],
         clip_epsilon_representation = clip_epsilon
         entropy_coeff_behaviour = 0
         clip_epsilon_behaviour = 1e6
-        update_logits = True
+        update_logits = False
 
 
         ########### Learn representation & value function ###########
@@ -140,8 +140,8 @@ def batch_epoch(batch: dict[str, jnp.array],
                                                                       normalize_advantages,
                                                                       clip_epsilon_representation)
         modified_gradient = unfreeze(gradient)
-        assert "out_logits" in modified_gradient["params"]
-        modified_gradient["params"]["out_logits"] = jax.tree_map(lambda x: jnp.zeros_like(x), gradient["params"]["out_logits"])
+        assert "logits" in modified_gradient["params"]
+        modified_gradient["params"]["logits"] = jax.tree_map(lambda x: jnp.zeros_like(x), gradient["params"]["logits"])
 
         param_updates, carry["optimizer_representation_state"] = optimizer_representation.update(
                                                                    freeze(modified_gradient),
@@ -162,7 +162,7 @@ def batch_epoch(batch: dict[str, jnp.array],
                                                                         clip_epsilon_behaviour)
             modified_gradient = unfreeze(gradient)
             for layer_name in gradient["params"]:
-                if layer_name != "out_logits":
+                if layer_name != "logits":
                     modified_gradient["params"][layer_name] = jax.tree_map(lambda x: jnp.zeros_like(x), gradient["params"][layer_name])
 
             param_updates, carry["optimizer_behaviour_state"] = optimizer_behaviour.update(
@@ -179,7 +179,7 @@ def batch_epoch(batch: dict[str, jnp.array],
     carry, result = jax.lax.scan(scan_function, initial_carry, xs=jnp.arange(n_iters))
 
     optimizer_states = (carry["optimizer_representation_state"], carry["optimizer_behaviour_state"])
-    # jax.debug.print("{}", jax.tree_map(lambda x: jnp.mean(x), carry["model_params"]["params"]["out_logits"]) )
+    # jax.debug.print("{}", jax.tree_map(lambda x: jnp.mean(x), carry["model_params"]["params"]["logits"]) )
     return (carry["model_params"], optimizer_states, *result)
 
 
