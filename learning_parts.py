@@ -2,7 +2,7 @@ import jax
 import optax
 import jax.numpy as jnp
 from functools import partial
-from flax.core.frozen_dict import FrozenDict
+from flax.core.frozen_dict import FrozenDict, freeze, unfreeze
 import flax.linen as nn
 from model import NN
 from typing import Callable
@@ -28,9 +28,9 @@ def loss_function(model_params: FrozenDict,
     assert states.shape[0] == minibatch_size
 
     # (minibatch_size, n_actions), (minibatch_size, 1)
-    policy_log_probs, detached_policy_log_probs, values = model.apply(model_params, states)
+    policy_log_probs, values = model.apply(model_params, states)
     values = jnp.squeeze(values, axis=-1)
-    assert policy_log_probs.shape == detached_policy_log_probs.shape == (minibatch_size, n_actions)
+    assert policy_log_probs.shape == (minibatch_size, n_actions)
     assert values.shape == (minibatch_size,)
 
     # (m, a) x (m,) => (m,) 
@@ -38,20 +38,13 @@ def loss_function(model_params: FrozenDict,
     def get_element(vector, idx):
         return vector[idx]    
     policy_log_likelihoods = get_element(policy_log_probs, actions)  # (minibatch_size,)
-    detached_policy_log_likelihoods = get_element(detached_policy_log_probs, actions)
-    
-    assert policy_log_likelihoods.shape == detached_policy_log_likelihoods.shape == old_policy_log_likelihoods.shape
+    assert policy_log_likelihoods.shape == old_policy_log_likelihoods.shape
 
     log_likelihood_ratios = policy_log_likelihoods - old_policy_log_likelihoods
     likelihood_ratios = jnp.exp(log_likelihood_ratios)
-
-    detached_log_likelihood_ratios = detached_policy_log_likelihoods - old_policy_log_likelihoods
-    detached_likelihood_ratios = jnp.exp(detached_log_likelihood_ratios)
-    detached_clip_likelihood_ratios = jnp.clip(detached_likelihood_ratios, 
+    clip_likelihood_ratios = jnp.clip(likelihood_ratios, 
                                          a_min=1-clip_epsilon, a_max=1+clip_epsilon)
-
-
-    clip_trigger_frac = jnp.mean(jnp.abs(detached_likelihood_ratios-1) > clip_epsilon)
+    clip_trigger_frac = jnp.mean(jnp.abs(likelihood_ratios-1) > clip_epsilon)
     # Approximate avg. KL(old || new), from John Schulman blog
     approx_kl = jnp.mean(-log_likelihood_ratios + likelihood_ratios-1)
     
@@ -62,14 +55,14 @@ def loss_function(model_params: FrozenDict,
                            advantages)
 
     policy_gradient_losses = likelihood_ratios * advantages  # (minibatch_size,)
-    detached_reg_losses = nn.relu((detached_likelihood_ratios-detached_clip_likelihood_ratios) * advantages)
+    clip_losses = clip_likelihood_ratios * advantages
 
-    ppo_loss = -1 * jnp.mean(policy_gradient_losses - detached_reg_losses)
-    val_loss = 0.5 * jnp.mean((values-bootstrap_returns)**2)
-    detached_entropy_bonus = jnp.mean(-jnp.exp(detached_policy_log_probs)*detached_policy_log_probs) * n_actions
+    ppo_loss = -1. * jnp.mean(jnp.minimum(policy_gradient_losses, clip_losses))
+    val_loss = 0.5 * jnp.mean((values-bootstrap_returns)**2)    
+    entropy_bonus = jnp.mean(-jnp.exp(policy_log_probs)*policy_log_probs) * n_actions
 
-    loss = ppo_loss + val_loss_coeff*val_loss - entropy_coeff*detached_entropy_bonus
-    return loss, (ppo_loss, val_loss, detached_entropy_bonus, clip_trigger_frac, approx_kl)
+    loss = ppo_loss + val_loss_coeff*val_loss - entropy_coeff*entropy_bonus
+    return loss, (ppo_loss, val_loss, entropy_bonus, clip_trigger_frac, approx_kl)
 
 
 val_and_grad_function = jax.jit(jax.value_and_grad(loss_function, argnums=0, has_aux=True),
@@ -93,8 +86,8 @@ def batch_epoch(batch: dict[str, jnp.array],
                 permutation_key: jax.random.PRNGKey,
                 model_params: FrozenDict,
                 model: NN,
-                optimizer_state: optax.OptState,
-                optimizer: optax.GradientTransformation,
+                optimizer_states: tuple[optax.OptState],
+                optimizers: tuple[optax.GradientTransformation],
                 n_actions: int,
                 horizon: int,
                 n_agents: int,
@@ -117,72 +110,77 @@ def batch_epoch(batch: dict[str, jnp.array],
     reshaped_batch = jax.tree_map(reshape, batch)  # each: (n_iters, ...)
     assert reshaped_batch["states"].shape[0] == n_iters
 
+    optimizer_representation, optimizer_behaviour = optimizers
+    optimizer_representation_state, optimizer_behaviour_state = optimizer_states
+
     initial_carry = {"model_params": model_params,
-                     "optimizer_state": optimizer_state}
+                     "optimizer_representation_state": optimizer_representation_state,
+                     "optimizer_behaviour_state": optimizer_behaviour_state}
     def scan_function(carry, idx):
         minibatch = jax.tree_map(lambda x: x[idx], 
                                  reshaped_batch)
         assert minibatch["states"].shape[0] == minibatch_size
 
-        # Plain loss
-        (_, _), gradient = val_and_grad_function(carry["model_params"],
-                                                 minibatch,
-                                                 model,
-                                                 n_actions,
-                                                 minibatch_size,
-                                                 0,
-                                                 0,
-                                                 normalize_advantages,
-                                                 1e6)
-        
-        param_updates, carry["optimizer_state"] = optimizer.update(gradient,
-                                                                   carry["optimizer_state"],
-                                                                   carry["model_params"])
-        carry["model_params"] = optax.apply_updates(carry["model_params"], param_updates)
+
+        entropy_coeff_representation = entropy_coeff
+        clip_epsilon_representation = clip_epsilon
+        entropy_coeff_behaviour = 0
+        clip_epsilon_behaviour = 1e6
+        update_logits = True
 
 
-
-
-
-
-        # Total (plain + reg) loss
+        ########### Learn representation & value function ###########
         (minibatch_loss, loss_info), gradient = val_and_grad_function(carry["model_params"],
                                                                       minibatch,
                                                                       model,
                                                                       n_actions,
                                                                       minibatch_size,
                                                                       val_loss_coeff,
-                                                                      entropy_coeff,
+                                                                      entropy_coeff_representation,
                                                                       normalize_advantages,
-                                                                      clip_epsilon)
-        
-        param_updates, carry["optimizer_state"] = optimizer.update(gradient,
-                                                                   carry["optimizer_state"],
+                                                                      clip_epsilon_representation)
+        modified_gradient = unfreeze(gradient)
+        assert "out_logits" in modified_gradient["params"]
+        modified_gradient["params"]["out_logits"] = jax.tree_map(lambda x: jnp.zeros_like(x), gradient["params"]["out_logits"])
+
+        param_updates, carry["optimizer_representation_state"] = optimizer_representation.update(
+                                                                   freeze(modified_gradient),
+                                                                   carry["optimizer_representation_state"],
                                                                    carry["model_params"])
         carry["model_params"] = optax.apply_updates(carry["model_params"], param_updates)
 
+        if update_logits:
+            ####################### Learn behaviour ######################
+            (minibatch_loss, loss_info), gradient = val_and_grad_function(carry["model_params"],
+                                                                        minibatch,
+                                                                        model,
+                                                                        n_actions,
+                                                                        minibatch_size,
+                                                                        val_loss_coeff,
+                                                                        entropy_coeff_behaviour,
+                                                                        normalize_advantages,
+                                                                        clip_epsilon_behaviour)
+            modified_gradient = unfreeze(gradient)
+            for layer_name in gradient["params"]:
+                if layer_name != "out_logits":
+                    modified_gradient["params"][layer_name] = jax.tree_map(lambda x: jnp.zeros_like(x), gradient["params"][layer_name])
 
-
-
-
-
-
-
-
-
-
-
-
-
-
-
+            param_updates, carry["optimizer_behaviour_state"] = optimizer_behaviour.update(
+                                                                        freeze(modified_gradient),
+                                                                        carry["optimizer_behaviour_state"],
+                                                                        carry["model_params"])
+            carry["model_params"] = optax.apply_updates(carry["model_params"], param_updates)
+            #############################################################
+        
         ppo_loss, val_loss, entropy_bonus, clip_trigger_frac, approx_kl = loss_info
         append = (minibatch_loss, ppo_loss, val_loss, entropy_bonus, clip_trigger_frac, approx_kl)
         return carry, append
 
     carry, result = jax.lax.scan(scan_function, initial_carry, xs=jnp.arange(n_iters))
-    
-    return (carry["model_params"], carry["optimizer_state"], *result)
+
+    optimizer_states = (carry["optimizer_representation_state"], carry["optimizer_behaviour_state"])
+    # jax.debug.print("{}", jax.tree_map(lambda x: jnp.mean(x), carry["model_params"]["params"]["out_logits"]) )
+    return (carry["model_params"], optimizer_states, *result)
 
 
 @partial(jax.jit, static_argnums=(3, 4))
@@ -245,7 +243,7 @@ def sample_batch(agents_stateFeature: jnp.array,
                      "key": key}
     def scan_function(carry, x=None):
         # (n_agents, n_actions), (n_agents, 1)
-        agents_logProbs, _, agents_value = model.apply(model_params, carry["agents_stateFeature"])
+        agents_logProbs, agents_value = model.apply(model_params, carry["agents_stateFeature"])
         agents_probs = jnp.exp(agents_logProbs)
         agents_value = jnp.squeeze(agents_value, axis=-1)  # (n_agents,)
         assert agents_probs.shape == (n_agents, n_actions)
@@ -278,7 +276,7 @@ def sample_batch(agents_stateFeature: jnp.array,
     carry, batch = jax.lax.scan(scan_function, initial_carry, xs=None, length=horizon)
 
     # Finally, also get v(S_horizon) for advantage calculation
-    _, _, agents_value = model.apply(model_params, carry["agents_stateFeature"])
+    _, agents_value = model.apply(model_params, carry["agents_stateFeature"])
     agents_value = jnp.squeeze(agents_value, axis=-1)  # (n_agents,)
     batch["values"] = jnp.row_stack((batch["values"],
                                      agents_value))  # (horizon + 1, n_agents), where column = [v_0, v_1, v_2, ..., v_H]

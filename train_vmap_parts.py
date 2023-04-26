@@ -5,9 +5,9 @@ import jax.numpy as jnp
 import numpy as np
 import argparse
 import json
-from model import StopNN, StopSeparateNN
+from model import NN, SeparateNN
 from learning_parts import sample_batch, batch_epoch
-from test_parts import evaluate
+from test import evaluate
 from functools import partial
 from collections import OrderedDict
 import wandb
@@ -78,12 +78,12 @@ def train_once(key):
     modify the decorators appropriately """
 
     if architecture == "shared":
-        model = StopNN(hidden_layer_sizes=hidden_layer_sizes, 
+        model = NN(hidden_layer_sizes=hidden_layer_sizes, 
                 n_actions=n_actions, 
                 single_input_shape=example_state_feature.shape,
                 activation=activation)
     elif architecture == "separate":
-        model = StopSeparateNN(hidden_layer_sizes=hidden_layer_sizes, 
+        model = SeparateNN(hidden_layer_sizes=hidden_layer_sizes, 
                         n_actions=n_actions, 
                         single_input_shape=example_state_feature.shape,
                         activation=activation)
@@ -96,17 +96,24 @@ def train_once(key):
                                transition_steps=n_outer_iters*n_inner_iters)
     
     max_norm = jnp.where(clip_grad > 0, clip_grad, jnp.inf).astype(jnp.float32)
-    optimizer = optax.chain(optax.clip_by_global_norm(max_norm=max_norm), 
-                            optax.adam(lr))
+    optimizer_representation = optax.chain(optax.clip_by_global_norm(max_norm=max_norm), 
+                                           optax.adam(lr))
+    optimizer_behaviour = optax.chain(optax.clip_by_global_norm(max_norm=max_norm), 
+                                           optax.adam(lr))
+    optimizers = (optimizer_representation, optimizer_behaviour)
 
     key, *agents_subkeyReset = jax.random.split(key, n_agents+1)
     agents_subkeyReset = jnp.asarray(agents_subkeyReset)
     agents_stateFeature, agents_state = vecEnv_reset(agents_subkeyReset)  # (n_agents, n_features), (n_agents, .)
-    optimizer_state = optimizer.init(model_params)
+
+    optimizer_representation_state = optimizer_representation.init(model_params)
+    optimizer_behaviour_state = optimizer_behaviour.init(model_params)
+    optimizer_states = (optimizer_representation_state, optimizer_behaviour_state)
+
 
     initial_carry = {"key": key,
                      "model_params": model_params,
-                     "optimizer_state": optimizer_state,
+                     "optimizer_states": optimizer_states,
                      "agents_stateFeature": agents_stateFeature,
                      "agents_state": agents_state}
     def scan_function(carry, idx):
@@ -144,14 +151,14 @@ def train_once(key):
         for _ in range(n_epochs):
             key, permutation_key = jax.random.split(key)
 
-            (carry["model_params"], carry["optimizer_state"], minibatch_losses, 
+            (carry["model_params"], carry["optimizer_states"], minibatch_losses, 
             ppo_losses, val_losses, ent_bonuses, clip_trigger_fracs, approx_kls) = batch_epoch(
                                                         batch,
                                                         permutation_key,
                                                         carry["model_params"], 
                                                         model,
-                                                        carry["optimizer_state"],
-                                                        optimizer,
+                                                        carry["optimizer_states"],
+                                                        optimizers,
                                                         n_actions,
                                                         horizon,
                                                         n_agents,
@@ -196,7 +203,7 @@ if __name__ == "__main__":
     #                        "ent": jnp.array( [0.0, 0.01, 0.05, 0.1, 0.4, 0.8] ),
     #                        "clip": jnp.array( [0.005, 0.02, 0.08, 0.2, 0.5, 0.8, 1e6] )})
     ##############################################
-    WANDB = False
+    WANDB = True
     SAVE_ARRAY = False
 
     hparam_names = list(hparams.keys())
