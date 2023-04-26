@@ -37,6 +37,8 @@ architecture = config["architecture"]
 activation = config["activation"]
 n_eval_agents = config["n_eval_agents"]
 eval_iter = config["eval_iter"]
+freeze_logits = config["freeze_logits"]
+freeze_value = config["freeze_value"]
 
 env, env_params = gymnax.make(env_name)
 vecEnv_reset = jax.vmap(env.reset, in_axes=(0,))
@@ -68,12 +70,12 @@ eval_discount = config["eval_discount"]
 #############################################################
 
 @jax.jit
-@partial(jax.vmap, in_axes=(0,))
-def train_once(key):
-# @partial(jax.vmap, in_axes=(0, None, None))
-# @partial(jax.vmap, in_axes=(None, 0, None))
-# @partial(jax.vmap, in_axes=(None, None, 0))
-# def train_once(key, entropy_coeff, clip_epsilon):
+# @partial(jax.vmap, in_axes=(0,))
+# def train_once(key):
+@partial(jax.vmap, in_axes=(0, None, None))
+@partial(jax.vmap, in_axes=(None, 0, None))
+@partial(jax.vmap, in_axes=(None, None, 0))
+def train_once(key, entropy_coeff, clip_epsilon):
     """ To vmap over a hparam, include it as an argument and 
     modify the decorators appropriately """
 
@@ -166,8 +168,10 @@ def train_once(key):
                                                         val_loss_coeff,
                                                         entropy_coeff,
                                                         normalize_advantages,
-                                                        clip_epsilon*alpha)
-
+                                                        clip_epsilon*alpha,
+                                                        freeze_logits,
+                                                        freeze_value)
+            
         carry["key"] = key
         append_to["minibatch_losses"] = jnp.mean(minibatch_losses)
         append_to["ppo_losses"] = jnp.mean(ppo_losses)
@@ -198,13 +202,13 @@ if __name__ == "__main__":
 
 
     ################# VMAP OVER: #################
-    hparams = OrderedDict({"keys": keys})
-    # hparams = OrderedDict({"keys": keys, 
-    #                        "ent": jnp.array( [0.0, 0.01, 0.05, 0.1, 0.4, 0.8] ),
-    #                        "clip": jnp.array( [0.005, 0.02, 0.08, 0.2, 0.5, 0.8, 1e6] )})
+    # hparams = OrderedDict({"keys": keys})
+    hparams = OrderedDict({"keys": keys, 
+                           "ent": jnp.array( [0.0, 0.01, 0.05, 0.1, 0.4, 0.8] ),
+                           "clip": jnp.array( [0.005, 0.02, 0.08, 0.2, 0.5, 0.8, 1e6] )})
     ##############################################
-    WANDB = True
-    SAVE_ARRAY = False
+    WANDB = False
+    SAVE_ARRAY = True
 
     hparam_names = list(hparams.keys())
     assert hparam_names[0] == "keys"
@@ -216,14 +220,19 @@ if __name__ == "__main__":
     # Save for plotting
     if SAVE_ARRAY and len(hparams) == 3:
         save_indices = result["std_returns"][(0,)*len(hparams)] > -0.5
-        with open(f"./plotting/stopgrad/{env_name}.npy", 'wb') as f:
+        name = "noregb"
+        if freeze_logits:
+            name += "_fzb"
+        if freeze_value:
+            name += "_fzv"
+        with open(f"./plotting/{name}/{env_name}.npy", 'wb') as f:
             np.save(f, result["avg_returns"][..., save_indices])
-        with open(f"./plotting//stopgrad/{env_name}_exps.npy", 'wb') as f:
+        with open(f"./plotting//{name}/{env_name}_exps.npy", 'wb') as f:
             np.save(f, result["experiences"][(0,)*len(hparams)+(save_indices,)])
 
     # Log to wandb:
     if WANDB:
-        wandb.init(project="ppo_baselines", 
+        wandb.init(project="ppo_baselines_shared", 
                    config=config,
                    name=env_name+'-'+datetime.datetime.now().strftime("%d.%m-%H:%M"),
                    notes="Stopgrad")

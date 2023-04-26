@@ -95,7 +95,9 @@ def batch_epoch(batch: dict[str, jnp.array],
                 val_loss_coeff: float,
                 entropy_coeff: float,
                 normalize_advantages: bool,
-                clip_epsilon: float):
+                clip_epsilon: float,
+                freeze_logits: bool,
+                freeze_value: bool):
     """ batch: each jnp.array: (horizon, n_agents, ...) """
 
     batch = permute(batch, permutation_key)
@@ -122,13 +124,6 @@ def batch_epoch(batch: dict[str, jnp.array],
         assert minibatch["states"].shape[0] == minibatch_size
 
 
-        entropy_coeff_representation = entropy_coeff
-        clip_epsilon_representation = clip_epsilon
-        entropy_coeff_behaviour = 0
-        clip_epsilon_behaviour = 1e6
-        update_logits = False
-
-
         ########### Learn representation & value function ###########
         (minibatch_loss, loss_info), gradient = val_and_grad_function(carry["model_params"],
                                                                       minibatch,
@@ -136,12 +131,16 @@ def batch_epoch(batch: dict[str, jnp.array],
                                                                       n_actions,
                                                                       minibatch_size,
                                                                       val_loss_coeff,
-                                                                      entropy_coeff_representation,
+                                                                      entropy_coeff,
                                                                       normalize_advantages,
-                                                                      clip_epsilon_representation)
+                                                                      clip_epsilon)
         modified_gradient = unfreeze(gradient)
         assert "logits" in modified_gradient["params"]
         modified_gradient["params"]["logits"] = jax.tree_map(lambda x: jnp.zeros_like(x), gradient["params"]["logits"])
+
+        if freeze_value:
+            assert "value" in modified_gradient["params"]
+            modified_gradient["params"]["value"] = jax.tree_map(lambda x: jnp.zeros_like(x), gradient["params"]["value"])
 
         param_updates, carry["optimizer_representation_state"] = optimizer_representation.update(
                                                                    freeze(modified_gradient),
@@ -149,7 +148,9 @@ def batch_epoch(batch: dict[str, jnp.array],
                                                                    carry["model_params"])
         carry["model_params"] = optax.apply_updates(carry["model_params"], param_updates)
 
-        if update_logits:
+        if freeze_logits:
+            pass
+        else:  
             ####################### Learn behaviour ######################
             (minibatch_loss, loss_info), gradient = val_and_grad_function(carry["model_params"],
                                                                         minibatch,
@@ -157,9 +158,9 @@ def batch_epoch(batch: dict[str, jnp.array],
                                                                         n_actions,
                                                                         minibatch_size,
                                                                         val_loss_coeff,
-                                                                        entropy_coeff_behaviour,
-                                                                        normalize_advantages,
-                                                                        clip_epsilon_behaviour)
+                                                                        entropy_coeff=0,
+                                                                        normalize_advantages=normalize_advantages,
+                                                                        clip_epsilon=1e6)
             modified_gradient = unfreeze(gradient)
             for layer_name in gradient["params"]:
                 if layer_name != "logits":
