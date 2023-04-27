@@ -81,7 +81,7 @@ def permute(batch, key):
     return batch
 
 
-@partial(jax.jit, static_argnums=(3, 5, 6, 7, 8, 9))
+@partial(jax.jit, static_argnums=(3, 5, 6, 7, 8, 9, 14, 15))
 def batch_epoch(batch: dict[str, jnp.array],
                 permutation_key: jax.random.PRNGKey,
                 model_params: FrozenDict,
