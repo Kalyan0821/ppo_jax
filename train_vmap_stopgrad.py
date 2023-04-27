@@ -196,7 +196,7 @@ if __name__ == "__main__":
     #                        "ent": jnp.array( [0.0, 0.01, 0.05, 0.1, 0.4, 0.8] ),
     #                        "clip": jnp.array( [0.005, 0.02, 0.08, 0.2, 0.5, 0.8, 1e6] )})
     ##############################################
-    WANDB = False
+    WANDB = True
     SAVE_ARRAY = False
 
     hparam_names = list(hparams.keys())
@@ -216,7 +216,7 @@ if __name__ == "__main__":
 
     # Log to wandb:
     if WANDB:
-        wandb.init(project="ppo_baselines", 
+        wandb.init(project="ppo_baselines_shared", 
                    config=config,
                    name=env_name+'-'+datetime.datetime.now().strftime("%d.%m-%H:%M"),
                    notes="Stopgrad")

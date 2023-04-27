@@ -143,12 +143,6 @@ class StopNN(nn.Module):
         return policy_log_probs, detached_policy_log_probs, value  # (n_actions,), (1,)
 
 
-
-
-
-
-        
-
 class StopSeparateNN(nn.Module):
     """ Separate models for policy and value function """
 
