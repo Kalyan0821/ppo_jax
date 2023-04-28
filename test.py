@@ -95,7 +95,7 @@ class TestablePerturbedModel(nn.Module):
     
 
 if __name__ == "__main__":
-    from train_vmap_offpolicy import env_name, SEED, N_SEEDS, hidden_layer_sizes, architecture, activation, n_eval_agents, env, example_state_feature, n_actions, eval_discount, offpolicy_alpha
+    from train_vmap import env_name, SEED, N_SEEDS, hidden_layer_sizes, architecture, activation, n_eval_agents, env, example_state_feature, n_actions, eval_discount
     key0 = jax.random.PRNGKey(SEED)
     keys = jnp.array([key0, *jax.random.split(key0, N_SEEDS-1)])
 
@@ -111,11 +111,10 @@ if __name__ == "__main__":
                         activation=activation)
 
     model_params = restore_checkpoint("./saved_models", None, 0, prefix=env_name+'_')
-    perturbed_model = TestablePerturbedModel(model, alpha=offpolicy_alpha)
-    print(perturbed_model, '\n')
+    print(model, '\n')
 
     vmap_evaluate = jax.vmap(evaluate, in_axes=(None, 0, None, None, None, None, None, None))
-    returns = vmap_evaluate(env, keys, model_params, perturbed_model, n_actions, n_eval_agents, eval_discount, 
+    returns = vmap_evaluate(env, keys, model_params, model, n_actions, n_eval_agents, eval_discount, 
                             False)
     
     avg_return, std_return = np.mean(returns), np.std(returns)

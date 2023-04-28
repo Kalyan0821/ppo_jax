@@ -68,7 +68,7 @@ eval_discount = config["eval_discount"]
 #############################################################
 
 WANDB = False
-SAVE_MODEL = False
+SAVE_MODEL = True
 
 if WANDB:
     wandb.init(project="ppo", 
@@ -181,4 +181,4 @@ for exp, steps in evals:
 print()
 
 if SAVE_MODEL:
-    save_checkpoint("./saved_models", model_params, 0, prefix=env_name+'_', overwrite=True)
+    save_checkpoint(f"./saved_models/{architecture}", model_params, 0, prefix=env_name+'_', overwrite=True)
