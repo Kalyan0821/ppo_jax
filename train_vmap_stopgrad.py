@@ -216,7 +216,7 @@ if __name__ == "__main__":
 
     # Log to wandb:
     if WANDB:
-        wandb.init(project="ppo_baselines", 
+        wandb.init(project="ppo_baselines_shared", 
                    config=config,
                    name=env_name+'-'+datetime.datetime.now().strftime("%d.%m-%H:%M"),
                    notes="Stopgrad")
