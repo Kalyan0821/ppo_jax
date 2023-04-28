@@ -85,7 +85,6 @@ class SeparateNN(nn.Module):
         policy_logits = nn.Dense(features=self.n_actions, name="logits")(actor_x)
         policy_log_probs = nn.log_softmax(policy_logits)
 
-
         # Critic
         for l, size in enumerate(self.hidden_layer_sizes):
             critic_x = nn.Dense(features=size, name=f"dense_{l+1}_value")(critic_x)
