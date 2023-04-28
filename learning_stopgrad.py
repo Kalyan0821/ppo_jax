@@ -50,7 +50,6 @@ def loss_function(model_params: FrozenDict,
     detached_clip_likelihood_ratios = jnp.clip(detached_likelihood_ratios, 
                                          a_min=1-clip_epsilon, a_max=1+clip_epsilon)
 
-
     clip_trigger_frac = jnp.mean(jnp.abs(detached_likelihood_ratios-1) > clip_epsilon)
     # Approximate avg. KL(old || new), from John Schulman blog
     approx_kl = jnp.mean(-log_likelihood_ratios + likelihood_ratios-1)
