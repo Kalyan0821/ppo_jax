@@ -235,7 +235,7 @@ if __name__ == "__main__":
         wandb.init(project="ppo_baselines_shared", 
                    config=config,
                    name=env_name+'-'+datetime.datetime.now().strftime("%d.%m-%H:%M"),
-                   notes="Stopgrad")
+                   notes="Parts")
         npmean = lambda x: np.mean(np.array(x))
         npstd = lambda x: np.std(np.array(x))
         if len(hparams) == 1:
