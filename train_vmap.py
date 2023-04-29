@@ -7,6 +7,7 @@ import argparse
 import json
 from model import NN, SeparateNN
 from learning import sample_batch, batch_epoch
+from flax.training.checkpoints import save_checkpoint
 from test import evaluate
 from functools import partial
 from collections import OrderedDict
@@ -197,7 +198,7 @@ if __name__ == "__main__":
                            "clip": jnp.array( [0.005, 0.02, 0.08, 0.2, 0.5, 0.8, 1e6] )})
     ##############################################
     WANDB = False
-    SAVE_ARRAY = True
+    SAVE_ARRAY = False
     SVD = True
 
     hparam_names = list(hparams.keys())
@@ -220,6 +221,8 @@ if __name__ == "__main__":
             np.save(f, Ws_representation)
         with open(f"./plotting/{architecture}/{env_name}_Wp.npy", 'wb') as f:
             np.save(f, Ws_policy)
+        
+        save_checkpoint(f"./saved_models/{architecture}", carry["model_params"], 0, prefix=env_name+'-vmap_', overwrite=True)
 
 
     # Save for plotting
