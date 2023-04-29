@@ -182,7 +182,7 @@ def train_once(key, entropy_coeff, clip_epsilon):
     result["avg_returns"] = jnp.append(result["avg_returns"], avg_return)
     result["std_returns"] = jnp.append(result["std_returns"], std_return)
 
-    return result
+    return result, carry
     
 
 if __name__ == "__main__":
@@ -198,13 +198,29 @@ if __name__ == "__main__":
     ##############################################
     WANDB = False
     SAVE_ARRAY = True
+    SVD = True
 
     hparam_names = list(hparams.keys())
     assert hparam_names[0] == "keys"
     
     # Train:
-    result = train_once(*hparams.values())
+    result, carry = train_once(*hparams.values())
     print("Done. Result shape:", result["avg_returns"].shape, '\n')
+
+    # SVD
+    if SVD:
+        representation_layer = f"dense_{len(hidden_layer_sizes)}_policy" if architecture == "separate" else f"dense_{len(hidden_layer_sizes)}"
+        Ws_representation = carry["model_params"]["params"][representation_layer]["kernel"]
+        Ws_policy = carry["model_params"]["params"]["logits"]["kernel"]
+        print("Wr shape:", Ws_representation.shape)
+        print("Wp shape:", Ws_policy.shape)
+
+        # Save for plotting
+        with open(f"./plotting/{architecture}/{env_name}_Wr.npy", 'wb') as f:
+            np.save(f, Ws_representation)
+        with open(f"./plotting/{architecture}/{env_name}_Wp.npy", 'wb') as f:
+            np.save(f, Ws_policy)
+
 
     # Save for plotting
     if SAVE_ARRAY and len(hparams) == 3:
