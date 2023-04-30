@@ -12,6 +12,7 @@ class NN(nn.Module):
     n_actions: int
     single_input_shape: tuple[int]
     activation: str
+    return_feature: bool = False
 
     @nn.compact
     def __call__(self, x: jnp.array):
@@ -43,6 +44,9 @@ class NN(nn.Module):
 
         value = nn.Dense(features=1, name="value")(x)
 
+        if self.return_feature:
+            return policy_log_probs, value, x  # (n_actions,), (1,), (final_hidden_layer_size,)
+
         return policy_log_probs, value  # (n_actions,), (1,)
     
 
@@ -54,6 +58,7 @@ class SeparateNN(nn.Module):
     n_actions: int
     single_input_shape: tuple[int]
     activation: str
+    return_feature: bool = False
 
     @nn.compact
     def __call__(self, x: jnp.array):
@@ -93,6 +98,9 @@ class SeparateNN(nn.Module):
         value = nn.Dense(features=1, name="value")(critic_x)
 
         # Return
+        if self.return_feature:
+            return policy_log_probs, value, actor_x  # (n_actions,), (1,), (final_hidden_layer_size,)
+        
         return policy_log_probs, value  # (n_actions,), (1,)
     
 
