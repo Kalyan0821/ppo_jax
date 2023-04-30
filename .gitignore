@@ -2,3 +2,5 @@ __pycache__
 logs
 wandb
 .ipynb_checkpoints
+*.npy
+*vmap_0
