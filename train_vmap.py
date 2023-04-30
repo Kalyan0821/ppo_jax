@@ -198,7 +198,7 @@ if __name__ == "__main__":
                            "clip": jnp.array( [0.005, 0.02, 0.08, 0.2, 0.5, 0.8, 1e6] )})
     ##############################################
     WANDB = False
-    SAVE_ARRAY = False
+    SAVE_ARRAY = True
     SVD = True
 
     hparam_names = list(hparams.keys())
@@ -217,9 +217,9 @@ if __name__ == "__main__":
         print("Wp shape:", Ws_policy.shape)
 
         # Save for plotting
-        with open(f"./plotting/{architecture}/{env_name}_Wr.npy", 'wb') as f:
+        with open(f"./plotting/{architecture}/weights/{env_name}_Wr.npy", 'wb') as f:
             np.save(f, Ws_representation)
-        with open(f"./plotting/{architecture}/{env_name}_Wp.npy", 'wb') as f:
+        with open(f"./plotting/{architecture}/weights/{env_name}_Wp.npy", 'wb') as f:
             np.save(f, Ws_policy)
         
         save_checkpoint(f"./saved_models/{architecture}", carry["model_params"], 0, prefix=env_name+'-vmap_', overwrite=True)
