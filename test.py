@@ -110,7 +110,7 @@ if __name__ == "__main__":
                         single_input_shape=example_state_feature.shape,
                         activation=activation)
 
-    model_params = restore_checkpoint("./saved_models", None, 0, prefix=env_name+'_')
+    model_params = restore_checkpoint(f"./saved_models/{architecture}", None, 0, prefix=env_name+'_')
     print(model, '\n')
 
     vmap_evaluate = jax.vmap(evaluate, in_axes=(None, 0, None, None, None, None, None, None))
