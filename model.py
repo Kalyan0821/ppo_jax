@@ -1,5 +1,6 @@
 import flax.linen as nn
 import jax.numpy as jnp
+import jax
 from flax.core.frozen_dict import FrozenDict
 from jax.config import config as cfg
 cfg.update("jax_enable_x64", True)  # to ensure vmap/non-vmap consistency
@@ -45,7 +46,7 @@ class NN(nn.Module):
         value = nn.Dense(features=1, name="value")(x)
 
         if self.return_feature:
-            return policy_log_probs, value, x  # (n_actions,), (1,), (final_hidden_layer_size,)
+            return policy_log_probs, value, jax.lax.stop_gradient(x)  # (n_actions,), (1,), (final_hidden_layer_size,)
 
         return policy_log_probs, value  # (n_actions,), (1,)
     
@@ -99,7 +100,7 @@ class SeparateNN(nn.Module):
 
         # Return
         if self.return_feature:
-            return policy_log_probs, value, actor_x  # (n_actions,), (1,), (final_hidden_layer_size,)
+            return policy_log_probs, value, jax.lax.stop_gradient(actor_x)  # (n_actions,), (1,), (final_hidden_layer_size,)
         
         return policy_log_probs, value  # (n_actions,), (1,)
     
@@ -119,3 +120,13 @@ class PerturbedModel(nn.Module):
         new_log_probs = jnp.log(new_probs)
 
         return new_log_probs, None
+    
+
+class SoftMaxLayer(nn.Module):
+    n_actions: int
+    
+    @nn.compact
+    def __call__(self, x: jnp.array):
+        logits = nn.Dense(features=self.n_actions, name='z')(x)
+        log_probs = nn.log_softmax(logits)
+        return log_probs
