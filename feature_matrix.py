@@ -114,7 +114,7 @@ def sample_batch(agents_stateFeature: jnp.array,
 
     _, batch = jax.lax.scan(scan_function, initial_carry, xs=None, length=horizon)
     
-    return_keys = ["states", "actions"]
+    return_keys = ["states", "actions", "rewards"]
     return_batch = {k: batch[k] for k in return_keys}
 
     return return_batch
@@ -159,26 +159,43 @@ def compute_features(key, optimal_params, model_params):
                          horizon,
                          n_agents)
     assert batch["states"].shape[:2] == (horizon, n_agents)  # (horizon, n_agents, n_features)
-
     reshaped_batch = jax.tree_map(lambda x: jnp.reshape(x, (-1,)+x.shape[2:]), batch)  # each: (horizon*n_agents, ...)
     states = reshaped_batch["states"]  # (horizon*n_agents, n_features)
     actions = reshaped_batch["actions"]  # (horizon*n_agents,)
-    assert states.shape[0] == states.shape[0] == horizon*n_agents
+    assert states.shape[0] == actions.shape[0] == horizon*n_agents
 
     _, _, model_features = model.apply(model_params, states)  # (horizon*n_agents, final_hidden_layer_size)
 
-    return states, model_features, actions
+    bad_batch = sample_batch(agents_stateFeature,
+                         agents_state,
+                         vecEnv_step,
+                         key,
+                         model_params, 
+                         model,
+                         n_actions,
+                         horizon,
+                         n_agents)
+    reshaped_bad_batch = jax.tree_map(lambda x: jnp.reshape(x, (-1,)+x.shape[2:]), bad_batch)  # each: (horizon*n_agents, ...)
+    bad_rewards = reshaped_bad_batch["rewards"]  # (horizon*n_agents,)
+
+    return states, model_features, actions, bad_rewards
     
 
 if __name__ == "__main__":
     key0 = jax.random.PRNGKey(SEED)
     keys = jnp.array([key0, *jax.random.split(key0, N_SEEDS-1)])
 
-    optimal_params = restore_checkpoint(f"./saved_models/{architecture}", None, 0, prefix=env_name+'_')
     model_params = restore_checkpoint(f"./saved_models/{architecture}", None, 0, prefix=env_name+"-vmap_")
+    # optimal_params = restore_checkpoint(f"./saved_models/{architecture}", None, 0, prefix=env_name+'_')
+    optimal_params = jax.tree_map(lambda x: x[0, 1, 2], model_params)
 
-    states, features, actions = compute_features(keys, optimal_params, model_params)
-    print("Done.", states.shape, features.shape, actions.shape)
+    states, features, actions, model_rewards = compute_features(keys, optimal_params, model_params)
+    print("Done.", states.shape, features.shape, actions.shape, model_rewards.shape)
+
+    print(jnp.mean(actions[0]))
+
+    # print(jnp.cumsum(model_rewards[0, 1, 1]))
+    # print(jnp.cumsum(model_rewards[0, -1, -1]))
 
     # Save for plotting
     # with open(f"./plotting/{architecture}/feature_matrix/{env_name}_states.npy", 'wb') as f:
