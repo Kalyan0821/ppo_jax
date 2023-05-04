@@ -75,8 +75,12 @@ def softmax_loss_function(softmax_params: FrozenDict,
     hidden_features = minibatch["hidden_features"]  # (minibatch_size, n_features)
     optimal_probs = minibatch["optimal_probs"]
 
+    assert optimal_probs.shape[1] == n_actions
+    optimal_actions = jnp.argmax(optimal_probs, axis=1)
+
     log_probs = softmax_model.apply(softmax_params, hidden_features)
     cross_entropy_losses = -1 * jnp.sum(optimal_probs*log_probs, axis=1)
+    # cross_entropy_losses = -1 * log_probs[:, optimal_actions]
 
     loss = jnp.mean(cross_entropy_losses)
     return loss
@@ -151,8 +155,10 @@ def sample_batch(agents_stateFeature: jnp.array,
 def dagger_behaviour_clone(key, optimal_params, model_params):
 
     n_outer_iters = 50
-    n_epochs = 50
+    n_agents = 1
+    n_epochs = 10
     lr = 1e-2
+    horizon = 512
 
     if architecture == "shared":
         model = NN(hidden_layer_sizes=hidden_layer_sizes, 
@@ -292,13 +298,13 @@ if __name__ == "__main__":
     keys = jnp.array([key0, *jax.random.split(key0, N_SEEDS-1)])
 
     model_params = restore_checkpoint(f"./saved_models/{architecture}", None, 0, prefix=env_name+"-vmap_")
-    optimal_params = jax.tree_map(lambda x: x[0, 1, 2], model_params)
+    optimal_params = jax.tree_map(lambda x: x[3, 1, 2], model_params)
     
 
 
 
     keys = jnp.array([key0])
-    model_params = jax.tree_map(lambda x: jnp.expand_dims(jnp.expand_dims(jnp.expand_dims(x[0, 1, 1], 0), 0), 0),
+    model_params = jax.tree_map(lambda x: jnp.expand_dims(jnp.expand_dims(jnp.expand_dims(x[3, 1, 2], 0), 0), 0),
                                 model_params)
 
 
