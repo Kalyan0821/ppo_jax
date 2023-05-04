@@ -14,6 +14,7 @@ class NN(nn.Module):
     single_input_shape: tuple[int]
     activation: str
     return_feature: bool = False
+    freeze_representation: bool = False
 
     @nn.compact
     def __call__(self, x: jnp.array):
@@ -38,6 +39,9 @@ class NN(nn.Module):
         for l, size in enumerate(self.hidden_layer_sizes):
             x = nn.Dense(features=size, name=f"dense_{l+1}")(x)
             x = activation(x)
+
+        if self.freeze_representation:
+            x = jax.lax.stop_gradient(x)
 
         # Output layers
         policy_logits = nn.Dense(features=self.n_actions, name="logits")(x)

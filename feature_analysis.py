@@ -5,12 +5,11 @@ import jax.numpy as jnp
 import argparse
 import json
 from typing import Callable
-from model import NN, SeparateNN
+from model import NN, SeparateNN, SoftMaxLayer
 from learning import sample_action_and_logLikelihood
 from flax.core.frozen_dict import FrozenDict
 from flax.training.checkpoints import restore_checkpoint
 from test import evaluate
-from model import SoftMaxLayer
 import flax.linen as nn
 from functools import partial
 from jax.config import config as cfg
