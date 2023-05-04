@@ -30,9 +30,9 @@ total_experience = int(config["total_experience"])
 n_agents = config["n_agents"]
 horizon = config["horizon"]
 n_epochs = config["n_epochs"]
-# minibatch_size = config["minibatch_size"]
-minibatch_size = n_agents*horizon  # for 1 minibatch per epoch
-# assert minibatch_size <= n_agents*horizon
+minibatch_size = config["minibatch_size"]
+# minibatch_size = n_agents*horizon  # for 1 minibatch per epoch
+assert minibatch_size <= n_agents*horizon
 hidden_layer_sizes = tuple(config["hidden_layer_sizes"])
 architecture = config["architecture"]
 activation = config["activation"]
@@ -151,9 +151,9 @@ def sample_batch(agents_stateFeature: jnp.array,
 @partial(jax.vmap, in_axes=(None, None, 0))
 def dagger_behaviour_clone(key, optimal_params, model_params):
 
-    # n_outer_iters = 500
-    # n_epochs = 20
-    lr_begin = lr_end = 1e-2
+    n_outer_iters = 50
+    n_epochs = 50
+    lr = 1e-2
 
     if architecture == "shared":
         model = NN(hidden_layer_sizes=hidden_layer_sizes, 
@@ -173,10 +173,6 @@ def dagger_behaviour_clone(key, optimal_params, model_params):
     key, subkey_model = jax.random.split(key)
     softmax_params = softmax_model.init(subkey_model, jnp.zeros(hidden_layer_sizes[-1]))
     
-    lr = optax.linear_schedule(init_value=lr_begin, 
-                               end_value=lr_end, 
-                               transition_steps=n_outer_iters*n_inner_iters)
-    
     max_norm = jnp.where(clip_grad > 0, clip_grad, jnp.inf).astype(jnp.float32)
     softmax_optimizer = optax.chain(optax.clip_by_global_norm(max_norm=max_norm), 
                                     optax.adam(lr))
@@ -189,7 +185,7 @@ def dagger_behaviour_clone(key, optimal_params, model_params):
     for i in range(n_outer_iters):        
         composite_params = model_params
         composite_params["params"]["logits"] = softmax_params["params"]["z"]
-        if i == 0:
+        if i % 10 == 0:
             sampling_params = optimal_params
         else:
             sampling_params = composite_params
@@ -214,6 +210,8 @@ def dagger_behaviour_clone(key, optimal_params, model_params):
             reshaped_history = reshaped_batch
         else:
             reshaped_history = jax.tree_map(lambda x, y: jnp.concatenate([x, y], axis=0), reshaped_history, reshaped_batch)
+
+        jax.debug.print("{}", reshaped_history["optimal_probs"].shape)
 
         for _ in range(n_epochs):
             loss, gradient = val_and_grad_function(softmax_params, reshaped_history, softmax_model)
