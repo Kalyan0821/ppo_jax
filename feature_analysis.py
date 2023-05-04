@@ -26,11 +26,11 @@ env_name = config["env_name"]
 SEED = config["SEED"]
 N_SEEDS = config["N_SEEDS"]
 total_experience = int(config["total_experience"])
-# n_agents = config["n_agents"]
-# horizon = config["horizon"]
+n_agents = config["n_agents"]
+horizon = config["horizon"]
 n_epochs = config["n_epochs"]
 # minibatch_size = config["minibatch_size"]
-# minibatch_size = n_agents*horizon  # for 1 minibatch per epoch
+minibatch_size = n_agents*horizon  # for 1 minibatch per epoch
 # assert minibatch_size <= n_agents*horizon
 hidden_layer_sizes = tuple(config["hidden_layer_sizes"])
 architecture = config["architecture"]
@@ -44,14 +44,14 @@ vecEnv_step = jax.vmap(env.step, in_axes=(0, 0, 0))
 example_state_feature, _ = env.reset(jax.random.PRNGKey(0))
 n_actions = env.action_space().n
 
-# n_outer_iters = total_experience // (n_agents * horizon)
-# n_iters_per_epoch = n_agents*horizon // minibatch_size  # num_minibatches
-# n_inner_iters = n_epochs * n_iters_per_epoch 
+n_outer_iters = total_experience // (n_agents * horizon)
+n_iters_per_epoch = n_agents*horizon // minibatch_size  # num_minibatches
+n_inner_iters = n_epochs * n_iters_per_epoch 
 
 print("\nState feature shape:", example_state_feature.shape)
 print("Action space:", n_actions)
-# print("Minibatches per epoch:", n_iters_per_epoch)
-# print("Outer steps:", n_outer_iters, '\n')
+print("Minibatches per epoch:", n_iters_per_epoch)
+print("Outer steps:", n_outer_iters, '\n')
 
 ################# CAN VMAP OVER CHOICES OF: #################
 clip_epsilon = config["clip_epsilon"]
@@ -70,24 +70,20 @@ eval_discount = config["eval_discount"]
 
 def softmax_loss_function(softmax_params: FrozenDict,
                           minibatch: dict[str, jnp.array],
-                          softmax_model: SoftMaxLayer,
-                          n_actions: int,
-                          minibatch_size: int):
+                          softmax_model: SoftMaxLayer):
     
-    model_features = minibatch["model_features"]  # (minibatch_size, n_features)
+    hidden_features = minibatch["hidden_features"]  # (minibatch_size, n_features)
     optimal_probs = minibatch["optimal_probs"]
 
-    log_probs = softmax_model.apply(softmax_params, model_features)
-    assert log_probs.shape == (minibatch_size, n_actions)
-
+    log_probs = softmax_model.apply(softmax_params, hidden_features)
     cross_entropy_losses = -1 * jnp.sum(optimal_probs*log_probs, axis=1)
-    assert cross_entropy_losses.shape == (minibatch_size,)
+
     loss = jnp.mean(cross_entropy_losses)
     return loss
 
 
 val_and_grad_function = jax.jit(jax.value_and_grad(softmax_loss_function, argnums=0),
-                                static_argnums=(2, 3, 4))
+                                static_argnums=(2,))
 
 
 @partial(jax.jit, static_argnums=(0,))
@@ -103,7 +99,7 @@ def sample_batch(agents_stateFeature: jnp.array,
                  agents_state: jnp.array,
                  vecEnv_step: Callable,
                  key: jax.random.PRNGKey,
-                 optimal_params: FrozenDict,
+                 params: FrozenDict,
                  model: NN,
                  n_actions: int,
                  horizon: int,
@@ -114,7 +110,7 @@ def sample_batch(agents_stateFeature: jnp.array,
                      "key": key}
     def scan_function(carry, x=None):
         # (n_agents, n_actions), (n_agents, 1)
-        agents_logProbs, _, _ = model.apply(optimal_params, carry["agents_stateFeature"])
+        agents_logProbs, _, _ = model.apply(params, carry["agents_stateFeature"])
         agents_probs = jnp.exp(agents_logProbs)
         assert agents_probs.shape == (n_agents, n_actions)
 
@@ -123,11 +119,10 @@ def sample_batch(agents_stateFeature: jnp.array,
         assert agents_action.shape == (n_agents,)
 
         append_to = {"states": carry["agents_stateFeature"],
-                     "actions": agents_action,
-                     "optimal_probs": agents_probs}
+                     "actions": agents_action}
 
         ################### MDP TRANSITION ###################        
-        carry["key"], *agents_subkeyMDP = jax.random.split(carry["key"], n_agents+1)
+        carry["key"], *agents_subkeyMDP = jax.random.split(carry["key"], agents_action.shape[0]+1)
         agents_subkeyMDP = jnp.asarray(agents_subkeyMDP)  # (n_agents, ...)
         carry["agents_stateFeature"], carry["agents_state"], append_to["rewards"], _, _ = vecEnv_step(
                                                                 agents_subkeyMDP, 
@@ -137,23 +132,21 @@ def sample_batch(agents_stateFeature: jnp.array,
 
     carry, batch = jax.lax.scan(scan_function, initial_carry, xs=None, length=horizon)
     
-    return_keys = ["states", "actions", "rewards", "optimal_probs"]
+    return_keys = ["states", "actions"]
     return_batch = {k: batch[k] for k in return_keys}
 
     return carry["agents_stateFeature"], carry["agents_state"], return_batch, carry["key"]
 
 
-@jax.jit
+# @jax.jit
 @partial(jax.vmap, in_axes=(0,    None, 0))
 @partial(jax.vmap, in_axes=(None, None, 0))
 @partial(jax.vmap, in_axes=(None, None, 0))
-def behaviour_clone(key, optimal_params, model_params):
-    lr = 1e-4
-    n_agents = 4
-    n_iters = 50
-    horizon = env_params.max_steps_in_episode
+def dagger_behaviour_clone(key, optimal_params, model_params):
 
-    softmax_model = SoftMaxLayer(n_actions=n_actions)
+    n_outer_iters = 100
+    n_epochs = 10
+    lr_begin = lr_end = 1e-2
 
     if architecture == "shared":
         model = NN(hidden_layer_sizes=hidden_layer_sizes, 
@@ -167,59 +160,75 @@ def behaviour_clone(key, optimal_params, model_params):
                            single_input_shape=example_state_feature.shape,
                            activation=activation,
                            return_feature=True)
+    softmax_model = SoftMaxLayer(n_actions=n_actions)
     
+
     key, subkey_model = jax.random.split(key)
     softmax_params = softmax_model.init(subkey_model, jnp.zeros(hidden_layer_sizes[-1]))
-    softmax_optimizer = optax.adam(lr)
     
+    lr = optax.linear_schedule(init_value=lr_begin, 
+                               end_value=lr_end, 
+                               transition_steps=n_outer_iters*n_inner_iters)
+    
+    max_norm = jnp.where(clip_grad > 0, clip_grad, jnp.inf).astype(jnp.float32)
+    softmax_optimizer = optax.chain(optax.clip_by_global_norm(max_norm=max_norm), 
+                            optax.adam(lr))
+
     key, *agents_subkeyReset = jax.random.split(key, n_agents+1)
     agents_subkeyReset = jnp.asarray(agents_subkeyReset)
     agents_stateFeature, agents_state = vecEnv_reset(agents_subkeyReset)  # (n_agents, n_features), (n_agents, .)
     softmax_optimizer_state = softmax_optimizer.init(softmax_params)
 
-    for _ in range(n_iters):
+    for i in range(n_outer_iters):        
+        composite_params = model_params
+        composite_params["params"]["logits"] = softmax_params["params"]["z"]
+        if i == 0:
+            sampling_params = optimal_params
+        else:
+            sampling_params = composite_params
+
         agents_stateFeature, agents_state, batch, key = sample_batch(agents_stateFeature,
-                                                                        agents_state,
-                                                                        vecEnv_step,
-                                                                        key,
-                                                                        optimal_params, 
-                                                                        model,
-                                                                        n_actions,
-                                                                        horizon,
-                                                                        n_agents)
-        assert batch["states"].shape[:2] == (horizon, n_agents)  # (horizon, n_agents, n_features)
-        assert agents_stateFeature.shape[0] == n_agents
-
+                                                                     agents_state,
+                                                                     vecEnv_step,
+                                                                     key,
+                                                                     sampling_params, 
+                                                                     model,
+                                                                     n_actions,
+                                                                     horizon,
+                                                                     n_agents)
+        
         reshaped_batch = jax.tree_map(lambda x: jnp.reshape(x, (-1,)+x.shape[2:]), batch)  # each: (horizon*n_agents, ...)
-        assert reshaped_batch["states"].shape[0] == horizon*n_agents
+        optimal_log_probs, _, _  =  model.apply(optimal_params, reshaped_batch["states"])  # (horizon*n_agents, n_actions)
+        _, _, hidden_features = model.apply(model_params, reshaped_batch["states"])  # (horizon*n_agents, final_hidden_layer_size)
+        reshaped_batch["optimal_probs"] = jnp.exp(optimal_log_probs)
+        reshaped_batch["hidden_features"] = hidden_features
 
-        _, _, reshaped_batch["model_features"] = model.apply(model_params, reshaped_batch["states"])  # (horizon*n_agents, final_hidden_layer_size)
-        assert reshaped_batch["model_features"].shape[0] == horizon*n_agents
-
-        n_epochs = 5
+        if i == 0:
+            reshaped_history = reshaped_batch
+        else:
+            reshaped_history = jax.tree_map(lambda x, y: jnp.concatenate([x, y], axis=0), reshaped_history, reshaped_batch)
 
         for _ in range(n_epochs):
-            loss, gradient = val_and_grad_function(softmax_params, 
-                                                    reshaped_batch,
-                                                    softmax_model,
-                                                    n_actions,
-                                                    horizon*n_agents)
+            loss, gradient = val_and_grad_function(softmax_params, reshaped_history, softmax_model)
                 
             softmax_param_updates, softmax_optimizer_state = softmax_optimizer.update(gradient,
                                                                                       softmax_optimizer_state,
                                                                                       softmax_params)            
             softmax_params = optax.apply_updates(softmax_params, softmax_param_updates)
 
-        jax.debug.print("L {}", loss)
-    
+
+        jax.debug.print("{}", loss)
+
+
     # Eval
     _, key_eval = jax.random.split(key)
     model.return_feature = False
     composite_params = model_params
     composite_params["params"]["logits"] = softmax_params["params"]["z"]
-    
+
     returns = evaluate(env, key_eval, composite_params, model, n_actions, n_eval_agents, eval_discount)
     avg_return = jnp.mean(returns)
+    
     return softmax_params, softmax_optimizer_state, loss, avg_return
 
 
@@ -231,7 +240,6 @@ def compute_features(key, optimal_params, model_params):
     """ To vmap over a hparam, include it as an argument and 
     modify the decorators appropriately """
 
-    horizon = env_params.max_steps_in_episode
     n_agents = 1
 
     if architecture == "shared":
@@ -252,6 +260,8 @@ def compute_features(key, optimal_params, model_params):
     agents_subkeyReset = jnp.asarray(agents_subkeyReset)
     agents_stateFeature, agents_state = vecEnv_reset(agents_subkeyReset)  # (n_agents, n_features), (n_agents, .)
 
+    horizon = env_params.max_steps_in_episode
+
     _, _, batch, _ = sample_batch(agents_stateFeature,
                                   agents_state,
                                   vecEnv_step,
@@ -268,21 +278,9 @@ def compute_features(key, optimal_params, model_params):
     actions = reshaped_batch["actions"]  # (horizon*n_agents,)
     assert states.shape[0] == actions.shape[0] == horizon*n_agents
 
-    _, _, model_features = model.apply(model_params, states)  # (horizon*n_agents, final_hidden_layer_size)
+    _, _, hidden_features = model.apply(model_params, states)  # (horizon*n_agents, final_hidden_layer_size)
 
-    _, _, bad_batch, _ = sample_batch(agents_stateFeature,
-                                      agents_state,
-                                      vecEnv_step,
-                                      key,
-                                      model_params, 
-                                      model,
-                                      n_actions,
-                                      horizon,
-                                      n_agents)
-    reshaped_bad_batch = jax.tree_map(lambda x: jnp.reshape(x, (-1,)+x.shape[2:]), bad_batch)  # each: (horizon*n_agents, ...)
-    bad_rewards = reshaped_bad_batch["rewards"]  # (horizon*n_agents,)
-
-    return states, model_features, actions, bad_rewards
+    return states, hidden_features, actions
     
 
 if __name__ == "__main__":
@@ -291,12 +289,19 @@ if __name__ == "__main__":
 
     model_params = restore_checkpoint(f"./saved_models/{architecture}", None, 0, prefix=env_name+"-vmap_")
     optimal_params = jax.tree_map(lambda x: x[0, 1, 2], model_params)
+    
 
-    states, features, actions, model_rewards = compute_features(keys, optimal_params, model_params)
-    print("Done.", states.shape, features.shape, actions.shape, model_rewards.shape)
-    # print(jnp.cumsum(model_rewards[0, 1, 1]))
-    # print(jnp.cumsum(model_rewards[0, -1, -1]))
 
+
+    keys = jnp.array([key0])
+    model_params = jax.tree_map(lambda x: jnp.expand_dims(jnp.expand_dims(jnp.expand_dims(x[0, 0, -1], 0), 0), 0),
+                                model_params)
+
+
+
+
+    states, features, actions = compute_features(keys, optimal_params, model_params)
+    print("Done.", states.shape, features.shape, actions.shape)
     # # Save for plotting
     # with open(f"./plotting/{architecture}/feature_matrix/{env_name}_features.npy", 'wb') as f:
     #     np.save(f, features)
@@ -304,5 +309,7 @@ if __name__ == "__main__":
     #     np.save(f, actions)
 
 
-    softmax_params, softmax_optimizer_state, loss, avg_return = behaviour_clone(keys, optimal_params, model_params)
-    print(loss.shape, avg_return.shape)
+    softmax_params, softmax_optimizer_state, loss, avg_returns = dagger_behaviour_clone(keys, optimal_params, model_params)
+    print("Done.", loss.shape, avg_returns.shape)
+
+    print(jnp.mean(avg_returns, axis=0))
