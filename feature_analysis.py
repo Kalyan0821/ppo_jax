@@ -6,6 +6,7 @@ import argparse
 import json
 from typing import Callable
 from model import NN, SeparateNN
+from learning import sample_action_and_logLikelihood
 from flax.core.frozen_dict import FrozenDict
 from flax.training.checkpoints import restore_checkpoint
 from test import evaluate
@@ -114,15 +115,21 @@ def sample_batch(agents_stateFeature: jnp.array,
         agents_probs = jnp.exp(agents_logProbs)
         assert agents_probs.shape == (n_agents, n_actions)
 
-        # int, (n_agents,n_actions) --> (n_agents,)
-        agents_action = greedy_action(n_actions, agents_probs)
+        key, *agents_subkeyPolicy = jax.random.split(carry["key"], n_agents+1)
+        agents_subkeyPolicy = jnp.asarray(agents_subkeyPolicy)  # (n_agents, ...)
+        # (n_agents,.), int, (n_agents,n_actions), (n_agents,n_actions) --> (n_agents,), (n_agents,)
+        agents_action, _ = sample_action_and_logLikelihood(agents_subkeyPolicy, 
+                                                           n_actions, 
+                                                           agents_probs,
+                                                           agents_logProbs)
         assert agents_action.shape == (n_agents,)
-
+        
+        # int, (n_agents,n_actions) --> (n_agents,)
         append_to = {"states": carry["agents_stateFeature"],
-                     "actions": agents_action}
+                     "greedy_actions": greedy_action(n_actions, agents_probs)}
 
         ################### MDP TRANSITION ###################        
-        carry["key"], *agents_subkeyMDP = jax.random.split(carry["key"], agents_action.shape[0]+1)
+        carry["key"], *agents_subkeyMDP = jax.random.split(key, n_agents+1)
         agents_subkeyMDP = jnp.asarray(agents_subkeyMDP)  # (n_agents, ...)
         carry["agents_stateFeature"], carry["agents_state"], append_to["rewards"], _, _ = vecEnv_step(
                                                                 agents_subkeyMDP, 
@@ -132,7 +139,7 @@ def sample_batch(agents_stateFeature: jnp.array,
 
     carry, batch = jax.lax.scan(scan_function, initial_carry, xs=None, length=horizon)
     
-    return_keys = ["states", "actions"]
+    return_keys = ["states", "greedy_actions"]
     return_batch = {k: batch[k] for k in return_keys}
 
     return carry["agents_stateFeature"], carry["agents_state"], return_batch, carry["key"]
@@ -144,8 +151,8 @@ def sample_batch(agents_stateFeature: jnp.array,
 @partial(jax.vmap, in_axes=(None, None, 0))
 def dagger_behaviour_clone(key, optimal_params, model_params):
 
-    n_outer_iters = 100
-    n_epochs = 10
+    # n_outer_iters = 500
+    # n_epochs = 20
     lr_begin = lr_end = 1e-2
 
     if architecture == "shared":
@@ -172,7 +179,7 @@ def dagger_behaviour_clone(key, optimal_params, model_params):
     
     max_norm = jnp.where(clip_grad > 0, clip_grad, jnp.inf).astype(jnp.float32)
     softmax_optimizer = optax.chain(optax.clip_by_global_norm(max_norm=max_norm), 
-                            optax.adam(lr))
+                                    optax.adam(lr))
 
     key, *agents_subkeyReset = jax.random.split(key, n_agents+1)
     agents_subkeyReset = jnp.asarray(agents_subkeyReset)
@@ -217,7 +224,7 @@ def dagger_behaviour_clone(key, optimal_params, model_params):
             softmax_params = optax.apply_updates(softmax_params, softmax_param_updates)
 
 
-        jax.debug.print("{}", loss)
+        jax.debug.print("{}: {}", i, loss)
 
 
     # Eval
@@ -275,12 +282,12 @@ def compute_features(key, optimal_params, model_params):
     
     reshaped_batch = jax.tree_map(lambda x: jnp.reshape(x, (-1,)+x.shape[2:]), batch)  # each: (horizon*n_agents, ...)
     states = reshaped_batch["states"]  # (horizon*n_agents, n_features)
-    actions = reshaped_batch["actions"]  # (horizon*n_agents,)
-    assert states.shape[0] == actions.shape[0] == horizon*n_agents
+    greedy_actions = reshaped_batch["greedy_actions"]  # (horizon*n_agents,)
+    assert states.shape[0] == greedy_actions.shape[0] == horizon*n_agents
 
     _, _, hidden_features = model.apply(model_params, states)  # (horizon*n_agents, final_hidden_layer_size)
 
-    return states, hidden_features, actions
+    return states, hidden_features, greedy_actions
     
 
 if __name__ == "__main__":
@@ -294,19 +301,19 @@ if __name__ == "__main__":
 
 
     keys = jnp.array([key0])
-    model_params = jax.tree_map(lambda x: jnp.expand_dims(jnp.expand_dims(jnp.expand_dims(x[0, 0, -1], 0), 0), 0),
+    model_params = jax.tree_map(lambda x: jnp.expand_dims(jnp.expand_dims(jnp.expand_dims(x[0, 1, 1], 0), 0), 0),
                                 model_params)
 
 
 
 
-    states, features, actions = compute_features(keys, optimal_params, model_params)
-    print("Done.", states.shape, features.shape, actions.shape)
+    states, features, greedy_actions = compute_features(keys, optimal_params, model_params)
+    print("Done.", states.shape, features.shape, greedy_actions.shape)
     # # Save for plotting
     # with open(f"./plotting/{architecture}/feature_matrix/{env_name}_features.npy", 'wb') as f:
     #     np.save(f, features)
     # with open(f"./plotting/{architecture}/feature_matrix/{env_name}_actions.npy", 'wb') as f:
-    #     np.save(f, actions)
+    #     np.save(f, greedy_actions)
 
 
     softmax_params, softmax_optimizer_state, loss, avg_returns = dagger_behaviour_clone(keys, optimal_params, model_params)
