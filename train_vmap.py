@@ -199,7 +199,8 @@ if __name__ == "__main__":
     ##############################################
     WANDB = False
     SAVE_ARRAY = True
-    SVD = True
+    SAVE_REP_PARAMS = False
+    SAVE_ALL_PARAMS = False
 
     hparam_names = list(hparams.keys())
     assert hparam_names[0] == "keys"
@@ -209,7 +210,7 @@ if __name__ == "__main__":
     print("Done. Result shape:", result["avg_returns"].shape, '\n')
 
     # SVD
-    if SVD:
+    if SAVE_REP_PARAMS:
         representation_layer = f"dense_{len(hidden_layer_sizes)}_policy" if architecture == "separate" else f"dense_{len(hidden_layer_sizes)}"
         Ws_representation = carry["model_params"]["params"][representation_layer]["kernel"]
         Ws_policy = carry["model_params"]["params"]["logits"]["kernel"]
@@ -222,6 +223,7 @@ if __name__ == "__main__":
         with open(f"./plotting/{architecture}/weights/{env_name}_Wp.npy", 'wb') as f:
             np.save(f, Ws_policy)
         
+    if SAVE_ALL_PARAMS:
         save_checkpoint(f"./saved_models/{architecture}", carry["model_params"], 0, prefix=env_name+'-vmap_', overwrite=True)
 
 
