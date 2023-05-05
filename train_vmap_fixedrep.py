@@ -203,7 +203,7 @@ if __name__ == "__main__":
                            "clip": jnp.array( [0.005, 0.02, 0.08, 0.2, 0.5, 0.8, 1e6] )})
     ##############################################
     SAVE_ARRAY = True
-    NOREG_BASE = True
+    NOREG_BASE = False
 
     hparam_names = list(hparams.keys())
     assert hparam_names[0] == "keys"
@@ -225,6 +225,7 @@ if __name__ == "__main__":
             name = env_name+"_noregbase"
         else:
             name = env_name+"_optimalbase"
+            
         with open(f"./plotting/{architecture}/fixed_rep/{name}.npy", 'wb') as f:
             np.save(f, result["avg_returns"][..., save_indices])
         with open(f"./plotting/{architecture}/fixed_rep/{name}_exps.npy", 'wb') as f:
