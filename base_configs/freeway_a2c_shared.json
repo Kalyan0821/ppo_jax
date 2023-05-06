@@ -3,9 +3,9 @@
 "SEED": 42,
 "N_SEEDS": 8,
 
-"total_experience": 80000000,
-"lr_begin": 1e-4,
-"lr_end": 1e-4,
+"total_experience": 160000000,
+"lr_begin": 5e-4,
+"lr_end": 5e-4,
 "n_agents": 64,
 "horizon": 128,
 "n_epochs": 1,

@@ -193,8 +193,8 @@ if __name__ == "__main__":
     ################# VMAP OVER: #################
     hparams = OrderedDict({"keys": keys})
     ##############################################
-    WANDB = False
-    SAVE_ARRAY = True
+    WANDB = True
+    SAVE_ARRAY = False
     SAVE_REP_PARAMS = False
     SAVE_ALL_PARAMS = False
 
@@ -233,7 +233,7 @@ if __name__ == "__main__":
 
     # Log to wandb:
     if WANDB:
-        wandb.init(project="ppo_baselines_shared", 
+        wandb.init(project="a2c_baselines_shared", 
                    config=config,
                    name=env_name+'-'+datetime.datetime.now().strftime("%d.%m-%H:%M"))            
         npmean = lambda x: np.mean(np.array(x))
