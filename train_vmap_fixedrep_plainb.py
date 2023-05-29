@@ -227,5 +227,8 @@ if __name__ == "__main__":
 
         with open(f"./plotting/{architecture}/fixed_rep/{name}.npy", 'wb') as f:
             np.save(f, result["avg_returns"][..., save_indices])
+        with open(f"./plotting/{architecture}/fixed_rep/{name}_kls.npy", 'wb') as f:
+            np.save(f, result["approx_kls"][..., save_indices])
+
         with open(f"./plotting/{architecture}/fixed_rep/{name}_exps.npy", 'wb') as f:
             np.save(f, result["experiences"][(0,)*len(hparams)+(save_indices,)])
