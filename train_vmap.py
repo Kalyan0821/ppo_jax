@@ -200,7 +200,7 @@ if __name__ == "__main__":
     WANDB = False
     SAVE_ARRAY = True
     SAVE_REP_PARAMS = False
-    SAVE_ALL_PARAMS = False
+    SAVE_ALL_PARAMS = True
 
     hparam_names = list(hparams.keys())
     assert hparam_names[0] == "keys"

@@ -29,7 +29,6 @@ N_SEEDS = config["N_SEEDS"]
 total_experience = int(config["total_experience"])
 n_agents = config["n_agents"]
 horizon = config["horizon"]
-n_epochs = config["n_epochs"]
 minibatch_size = config["minibatch_size"]
 # minibatch_size = n_agents*horizon  # for 1 minibatch per epoch
 assert minibatch_size <= n_agents*horizon
@@ -47,7 +46,6 @@ n_actions = env.action_space().n
 
 n_outer_iters = total_experience // (n_agents * horizon)
 n_iters_per_epoch = n_agents*horizon // minibatch_size  # num_minibatches
-n_inner_iters = n_epochs * n_iters_per_epoch 
 
 print("\nState feature shape:", example_state_feature.shape)
 print("Action space:", n_actions)
@@ -68,13 +66,17 @@ discount = config["discount"]
 eval_discount = config["eval_discount"]
 #############################################################
 
-@partial(jax.jit, static_argnums=(-1,))
+FACTOR = 5
+n_epochs = config["n_epochs"] * FACTOR
+n_inner_iters = n_epochs * n_iters_per_epoch 
+
+@jax.jit
 # @partial(jax.vmap, in_axes=(0,))
 # def train_once(key):
-@partial(jax.vmap, in_axes=(0, None, None, None, None))
-@partial(jax.vmap, in_axes=(None, 0, None, None, None))
-@partial(jax.vmap, in_axes=(None, None, 0, None, None))
-def train_once(key, entropy_coeff, clip_epsilon, base_params, CONTINUE):
+@partial(jax.vmap, in_axes=(0, None, None, None))
+@partial(jax.vmap, in_axes=(None, 0, None, None))
+@partial(jax.vmap, in_axes=(None, None, 0, None))
+def train_once(key, entropy_coeff, clip_epsilon, base_params):
     """ To vmap over a hparam, include it as an argument and 
     modify the decorators appropriately """
 
@@ -96,8 +98,7 @@ def train_once(key, entropy_coeff, clip_epsilon, base_params, CONTINUE):
     init_softmax_params = temp_softmax_model.init(subkey_model, jnp.zeros(hidden_layer_sizes[-1]))
     model_params = base_params
 
-    if not CONTINUE:  # re-init the last layer
-        model_params["params"]["logits"] = init_softmax_params["params"]["z"]
+    model_params["params"]["logits"] = init_softmax_params["params"]["z"]
 
     lr = optax.linear_schedule(init_value=lr_begin, 
                                end_value=lr_end, 
@@ -200,37 +201,29 @@ if __name__ == "__main__":
 
     ################# VMAP OVER: #################
     # hparams = OrderedDict({"keys": keys})
+    # hparams = OrderedDict({"keys": keys, 
+    #                        "ent": jnp.array( [0.0, 0.01, 0.05, 0.1, 0.4, 0.8] ),
+    #                        "clip": jnp.array( [0.005, 0.02, 0.08, 0.2, 0.5, 0.8, 1e6] )})
     hparams = OrderedDict({"keys": keys, 
-                           "ent": jnp.array( [0.0, 0.01, 0.05, 0.1, 0.4, 0.8] ),
-                           "clip": jnp.array( [0.005, 0.02, 0.08, 0.2, 0.5, 0.8, 1e6] )})
+                           "ent": jnp.array( [0.0] ),
+                           "clip": jnp.array( [1e6] )})
     ##############################################
     SAVE_ARRAY = True
-    NOREG_BASE = False
-    
-    CONTINUE = True
 
     hparam_names = list(hparams.keys())
     assert hparam_names[0] == "keys"
     
     model_params_vmap = restore_checkpoint(f"./saved_models/{architecture}", None, 0, prefix=env_name+"-vmap_")
-    if NOREG_BASE:
-        base_params = jax.tree_map(lambda x: x[0, 0, -1], model_params_vmap)
-    else:
-        base_params = jax.tree_map(lambda x: x[0, 1, 2], model_params_vmap)
+    base_params = jax.tree_map(lambda x: x[0, 1, 2], model_params_vmap)
 
     # Train:
-    result, carry = train_once(*hparams.values(), base_params, CONTINUE)
+    result, carry = train_once(*hparams.values(), base_params)
     print("Done. Result shape:", result["avg_returns"].shape, '\n')
 
     # Save for plotting
     if SAVE_ARRAY and len(hparams) == 3:
         save_indices = result["std_returns"][(0,)*len(hparams)] > -0.5
-        if NOREG_BASE:
-            name = env_name+"_noregbase"
-        else:
-            name = env_name+"_optimalbase"
-        if CONTINUE:
-            name = name+"_continue"
+        name = env_name+"_optimalbase"+"_plainb"+f"_{n_epochs}epochs"
 
         with open(f"./plotting/{architecture}/fixed_rep/{name}.npy", 'wb') as f:
             np.save(f, result["avg_returns"][..., save_indices])
