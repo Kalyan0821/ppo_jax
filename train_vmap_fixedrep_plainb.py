@@ -223,12 +223,12 @@ if __name__ == "__main__":
     # Save for plotting
     if SAVE_ARRAY and len(hparams) == 3:
         save_indices = result["std_returns"][(0,)*len(hparams)] > -0.5
-        name = env_name+"_optimalbase"+"_plainb"+f"_{n_epochs}epochs"
+        name = env_name+"_optimalbase"+"_plainb"+f"_epochsx{FACTOR}"
 
         with open(f"./plotting/{architecture}/fixed_rep/{name}.npy", 'wb') as f:
             np.save(f, result["avg_returns"][..., save_indices])
         with open(f"./plotting/{architecture}/fixed_rep/{name}_kls.npy", 'wb') as f:
-            np.save(f, result["approx_kls"][..., save_indices])
+            np.save(f, result["approx_kls"][..., save_indices[:-1]])
 
         with open(f"./plotting/{architecture}/fixed_rep/{name}_exps.npy", 'wb') as f:
             np.save(f, result["experiences"][(0,)*len(hparams)+(save_indices,)])
