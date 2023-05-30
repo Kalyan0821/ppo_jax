@@ -153,8 +153,9 @@ def batch_epoch(batch: dict[str, jnp.array],
         for layer_name in carry["model_params"]["params"]:
             if layer_name != "logits":
                 adversarial_params["params"][layer_name] = carry["model_params"]["params"][layer_name]
+        carry["adversarial_params"] = freeze(adversarial_params)
 
-        (minibatch_loss, loss_info), gradient = val_and_grad_function(freeze(adversarial_params),
+        (minibatch_loss, loss_info), gradient = val_and_grad_function(carry["adversarial_params"],
                                                                       minibatch,
                                                                       model,
                                                                       n_actions,
@@ -173,7 +174,6 @@ def batch_epoch(batch: dict[str, jnp.array],
                                                                    carry["optimizer_adversarial_representation_state"],
                                                                    carry["adversarial_params"])
         carry["model_params"] = optax.apply_updates(carry["model_params"], param_updates)
-
 
         ####################### Learn behaviour ######################
         (minibatch_loss, loss_info), gradient = val_and_grad_function(carry["model_params"],
@@ -197,6 +197,12 @@ def batch_epoch(batch: dict[str, jnp.array],
         carry["model_params"] = optax.apply_updates(carry["model_params"], param_updates)
 
         ####################### Learn adversarial behaviour ######################
+        adversarial_params = unfreeze(carry["adversarial_params"])
+        for layer_name in carry["model_params"]["params"]:
+            if layer_name != "logits":
+                adversarial_params["params"][layer_name] = carry["model_params"]["params"][layer_name]
+        carry["adversarial_params"] = freeze(adversarial_params)
+
         (minibatch_loss, loss_info), gradient = val_and_grad_function(carry["adversarial_params"],
                                                                     minibatch,
                                                                     model,
@@ -216,9 +222,8 @@ def batch_epoch(batch: dict[str, jnp.array],
                                                                     carry["optimizer_adversarial_behaviour_state"],
                                                                     carry["adversarial_params"])
         carry["adversarial_params"] = optax.apply_updates(carry["adversarial_params"], param_updates)
-
-
-
+        
+        ##########################################################################
 
         ppo_loss, val_loss, entropy_bonus, clip_trigger_frac, approx_kl = loss_info
         append = (minibatch_loss, ppo_loss, val_loss, entropy_bonus, clip_trigger_frac, approx_kl)
