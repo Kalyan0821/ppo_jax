@@ -205,8 +205,8 @@ if __name__ == "__main__":
     #                        "ent": jnp.array( [0.0, 0.01, 0.05, 0.1, 0.4, 0.8] ),
     #                        "clip": jnp.array( [0.005, 0.02, 0.08, 0.2, 0.5, 0.8, 1e6] )})
     hparams = OrderedDict({"keys": keys, 
-                           "ent": jnp.array( [0.0, 0.01] ),
-                           "clip": jnp.array( [1e6, 0.08] )})
+                           "ent": jnp.array( [0.01] ),
+                           "clip": jnp.array( [0.08] )})
     ##############################################
     SAVE_ARRAY = True
 
