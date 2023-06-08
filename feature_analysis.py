@@ -10,7 +10,7 @@ from learning import sample_action_and_logLikelihood
 from flax.core.frozen_dict import FrozenDict
 from flax.training.checkpoints import restore_checkpoint
 from test import evaluate
-import flax.linen as nn
+import numpy as np
 from functools import partial
 from jax.config import config as cfg
 cfg.update("jax_enable_x64", True)  # to ensure vmap/non-vmap consistency
@@ -298,28 +298,18 @@ if __name__ == "__main__":
     keys = jnp.array([key0, *jax.random.split(key0, N_SEEDS-1)])
 
     model_params = restore_checkpoint(f"./saved_models/{architecture}", None, 0, prefix=env_name+"-vmap_")
-    optimal_params = jax.tree_map(lambda x: x[3, 1, 2], model_params)
-    
-
-
-
-    keys = jnp.array([key0])
-    model_params = jax.tree_map(lambda x: jnp.expand_dims(jnp.expand_dims(jnp.expand_dims(x[3, 1, 2], 0), 0), 0),
-                                model_params)
-
-
-
+    optimal_params = jax.tree_map(lambda x: x[0, 1, 2], model_params)
 
     states, features, greedy_actions = compute_features(keys, optimal_params, model_params)
     print("Done.", states.shape, features.shape, greedy_actions.shape)
-    # # Save for plotting
-    # with open(f"./plotting/{architecture}/feature_matrix/{env_name}_features.npy", 'wb') as f:
-    #     np.save(f, features)
-    # with open(f"./plotting/{architecture}/feature_matrix/{env_name}_actions.npy", 'wb') as f:
-    #     np.save(f, greedy_actions)
+
+    # Save for plotting
+    with open(f"./plotting/{architecture}/feature_matrix/{env_name}_features.npy", 'wb') as f:
+        np.save(f, features)
+    with open(f"./plotting/{architecture}/feature_matrix/{env_name}_actions.npy", 'wb') as f:
+        np.save(f, greedy_actions)
 
 
-    softmax_params, softmax_optimizer_state, loss, avg_returns = dagger_behaviour_clone(keys, optimal_params, model_params)
-    print("Done.", loss.shape, avg_returns.shape)
-
-    print(jnp.mean(avg_returns, axis=0))
+    # softmax_params, softmax_optimizer_state, loss, avg_returns = dagger_behaviour_clone(keys, optimal_params, model_params)
+    # print("Done.", loss.shape, avg_returns.shape)
+    # print(jnp.mean(avg_returns, axis=0))
