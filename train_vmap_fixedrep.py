@@ -5,7 +5,7 @@ import jax.numpy as jnp
 import numpy as np
 import argparse
 import json
-from model import NN, SeparateNN, SoftMaxLayer
+from model import NN, SeparateNN, SoftMaxLayer, ValueLayer
 from learning import sample_batch, batch_epoch
 from flax.training.checkpoints import restore_checkpoint
 from test import evaluate
@@ -91,13 +91,17 @@ def train_once(key, entropy_coeff, clip_epsilon, base_params, CONTINUE):
                         activation=activation,
                         freeze_representation=True)
     temp_softmax_model = SoftMaxLayer(n_actions=n_actions)
+    temp_value_model = ValueLayer()
 
     key, subkey_model = jax.random.split(key)
     init_softmax_params = temp_softmax_model.init(subkey_model, jnp.zeros(hidden_layer_sizes[-1]))
+    key, subkey_model_v = jax.random.split(key)
+    init_value_params = temp_value_model.init(subkey_model_v, jnp.zeros(hidden_layer_sizes[-1]))
     model_params = base_params
 
     if not CONTINUE:  # re-init the last layer
         model_params["params"]["logits"] = init_softmax_params["params"]["z"]
+        model_params["params"]["value"] = init_value_params["params"]["v"]
 
     lr = optax.linear_schedule(init_value=lr_begin, 
                                end_value=lr_end, 
