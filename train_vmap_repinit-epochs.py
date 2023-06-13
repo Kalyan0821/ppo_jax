@@ -226,7 +226,7 @@ if __name__ == "__main__":
     # Save for plotting
     if SAVE_ARRAY and len(hparams) == 3:
         save_indices = result["std_returns"][(0,)*len(hparams)] > -0.5
-        name = env_name+f"_optrep_epochsx{FACTOR}"
+        name = env_name+f"_repinit_epochsx{FACTOR}"
 
         with open(f"./plotting/{architecture}/{name}.npy", 'wb') as f:
             np.save(f, result["avg_returns"][..., save_indices])
