@@ -68,28 +68,26 @@ discount = config["discount"]
 eval_discount = config["eval_discount"]
 #############################################################
 
-@partial(jax.jit, static_argnums=(-1,))
+@jax.jit
 # @partial(jax.vmap, in_axes=(0,))
 # def train_once(key):
-@partial(jax.vmap, in_axes=(0, None, None, None, None))
-@partial(jax.vmap, in_axes=(None, 0, None, None, None))
-@partial(jax.vmap, in_axes=(None, None, 0, None, None))
-def train_once(key, entropy_coeff, clip_epsilon, base_params, CONTINUE):
-    """ To vmap over a hparam, include it as an argument and 
+@partial(jax.vmap, in_axes=(0, None, None, None))
+@partial(jax.vmap, in_axes=(None, 0, None, None))
+@partial(jax.vmap, in_axes=(None, None, 0, None))
+def train_once(key, entropy_coeff, clip_epsilon, base_params):
+    """ To vmap over a hparam, include it as an argument and
     modify the decorators appropriately """
 
     if architecture == "shared":
         model = NN(hidden_layer_sizes=hidden_layer_sizes, 
                 n_actions=n_actions, 
                 single_input_shape=example_state_feature.shape,
-                activation=activation,
-                freeze_representation=True)
+                activation=activation)
     elif architecture == "separate":
         model = SeparateNN(hidden_layer_sizes=hidden_layer_sizes, 
                         n_actions=n_actions, 
                         single_input_shape=example_state_feature.shape,
-                        activation=activation,
-                        freeze_representation=True)
+                        activation=activation)
     temp_softmax_model = SoftMaxLayer(n_actions=n_actions)
     temp_value_model = ValueLayer()
 
@@ -99,9 +97,8 @@ def train_once(key, entropy_coeff, clip_epsilon, base_params, CONTINUE):
     init_value_params = temp_value_model.init(subkey_model_v, jnp.zeros(hidden_layer_sizes[-1]))
     model_params = base_params
 
-    if not CONTINUE:  # re-init the last layer
-        model_params["params"]["logits"] = init_softmax_params["params"]["z"]
-        model_params["params"]["value"] = init_value_params["params"]["v"]
+    model_params["params"]["logits"] = init_softmax_params["params"]["z"]
+    model_params["params"]["value"] = init_value_params["params"]["v"]
 
     lr = optax.linear_schedule(init_value=lr_begin, 
                                end_value=lr_end, 
@@ -209,33 +206,21 @@ if __name__ == "__main__":
                            "clip": jnp.array( [0.005, 0.02, 0.08, 0.2, 0.5, 0.8, 1e6] )})
     ##############################################
     SAVE_ARRAY = True
-    NOREG_BASE = False
-    CONTINUE = False
 
     hparam_names = list(hparams.keys())
     assert hparam_names[0] == "keys"
     
     model_params_vmap = restore_checkpoint(f"./saved_models/{architecture}", None, 0, prefix=env_name+"-vmap_")
-    if NOREG_BASE:
-        base_params = jax.tree_map(lambda x: x[0, 0, -1], model_params_vmap)
-    else:
-        base_params = jax.tree_map(lambda x: x[0, 1, 2], model_params_vmap)
+    base_params = jax.tree_map(lambda x: x[0, 1, 2], model_params_vmap)
 
     # Train:
-    result, carry = train_once(*hparams.values(), base_params, CONTINUE)
+    result, carry = train_once(*hparams.values(), base_params)
     print("Done. Result shape:", result["avg_returns"].shape, '\n')
 
     # Save for plotting
     if SAVE_ARRAY and len(hparams) == 3:
         save_indices = result["std_returns"][(0,)*len(hparams)] > -0.5
-        if NOREG_BASE:
-            name = env_name+"_noregbase"
-        else:
-            name = env_name+"_optimalbase"
-        if CONTINUE:
-            name = name+"_continue"
-
-        with open(f"./plotting/{architecture}/fixed_rep/{name}.npy", 'wb') as f:
+        with open(f"./plotting/{architecture}/{env_name}_optrep.npy", 'wb') as f:
             np.save(f, result["avg_returns"][..., save_indices])
-        with open(f"./plotting/{architecture}/fixed_rep/{name}_exps.npy", 'wb') as f:
+        with open(f"./plotting/{architecture}/{env_name}_optrep_exps.npy", 'wb') as f:
             np.save(f, result["experiences"][(0,)*len(hparams)+(save_indices,)])
