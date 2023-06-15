@@ -112,3 +112,20 @@ class PerturbedModel(nn.Module):
         new_log_probs = jnp.log(new_probs)
 
         return new_log_probs, None
+
+
+class SoftMaxLayer(nn.Module):
+    n_actions: int
+
+    @nn.compact
+    def __call__(self, x: jnp.array):
+        logits = nn.Dense(features=self.n_actions, name='z')(x)
+        log_probs = nn.log_softmax(logits)
+        return log_probs
+
+class ValueLayer(nn.Module):
+
+    @nn.compact
+    def __call__(self, x: jnp.array):
+        value = nn.Dense(features=1, name='v')(x)
+        return value
