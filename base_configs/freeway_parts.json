@@ -14,7 +14,7 @@
 "architecture": "shared",
 "activation": "relu",
 
-"freeze_logits": true,
+"freeze_logits": false,
 "freeze_value": false,
 
 "clip_epsilon": 0.2,
