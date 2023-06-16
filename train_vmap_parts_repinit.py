@@ -240,7 +240,7 @@ if __name__ == "__main__":
         if freeze_value:
             name += "_fzv"
         name += "_repinit"
-        with open(f"./plotting/{name}/{env_name}.npy", 'wb') as f:
+        with open(f"./plotting/{architecture}/{name}/{env_name}.npy", 'wb') as f:
             np.save(f, result["avg_returns"][..., save_indices])
-        with open(f"./plotting//{name}/{env_name}_exps.npy", 'wb') as f:
+        with open(f"./plotting/{architecture}/{name}/{env_name}_exps.npy", 'wb') as f:
             np.save(f, result["experiences"][(0,)*len(hparams)+(save_indices,)])
