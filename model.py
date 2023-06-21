@@ -141,3 +141,25 @@ class ValueLayer(nn.Module):
     def __call__(self, x: jnp.array):
         value = nn.Dense(features=1, name='v')(x)
         return value
+
+class DenseLayer(nn.Module):
+    hidden_layer_sizes: tuple[int]
+    activation: str
+    layer: int
+    
+    @nn.compact
+    def __call__(self, x: jnp.array):        
+        size = self.hidden_layer_sizes[self.layer-1]
+
+        if self.activation == "relu":
+            activation = nn.relu
+        elif self.activation == "tanh":
+            activation = nn.tanh
+        else: 
+            raise NotImplementedError
+
+        x = nn.Dense(features=size, name='d')(x)
+        x = activation(x)
+        return x
+
+
