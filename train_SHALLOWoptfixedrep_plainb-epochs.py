@@ -66,7 +66,7 @@ discount = config["discount"]
 eval_discount = config["eval_discount"]
 #############################################################
 
-FACTOR = 1
+FACTOR = 5
 n_epochs = config["n_epochs"] * FACTOR
 n_inner_iters = n_epochs * n_iters_per_epoch 
 
