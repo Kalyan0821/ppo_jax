@@ -15,6 +15,7 @@ class NN(nn.Module):
     activation: str
     return_feature: bool = False
     freeze_representation: bool = False
+    freeze_shallow: bool = False
 
     @nn.compact
     def __call__(self, x: jnp.array):
@@ -39,6 +40,8 @@ class NN(nn.Module):
         for l, size in enumerate(self.hidden_layer_sizes):
             x = nn.Dense(features=size, name=f"dense_{l+1}")(x)
             x = activation(x)
+            if self.freeze_shallow and l == 0:
+                x = jax.lax.stop_gradient(x)
 
         if self.freeze_representation:
             x = jax.lax.stop_gradient(x)
@@ -54,7 +57,6 @@ class NN(nn.Module):
 
         return policy_log_probs, value  # (n_actions,), (1,)
     
-
 
 class SeparateNN(nn.Module):
     """ Separate models for policy and value function """
@@ -134,7 +136,8 @@ class SoftMaxLayer(nn.Module):
         logits = nn.Dense(features=self.n_actions, name='z')(x)
         log_probs = nn.log_softmax(logits)
         return log_probs
-    
+
+
 class ValueLayer(nn.Module):
     
     @nn.compact
@@ -142,14 +145,13 @@ class ValueLayer(nn.Module):
         value = nn.Dense(features=1, name='v')(x)
         return value
 
+
 class DenseLayer(nn.Module):
-    hidden_layer_sizes: tuple[int]
     activation: str
-    layer: int
+    out_size: int
     
     @nn.compact
-    def __call__(self, x: jnp.array):        
-        size = self.hidden_layer_sizes[self.layer-1]
+    def __call__(self, x: jnp.array):
 
         if self.activation == "relu":
             activation = nn.relu
@@ -158,8 +160,10 @@ class DenseLayer(nn.Module):
         else: 
             raise NotImplementedError
 
-        x = nn.Dense(features=size, name='d')(x)
+        x = nn.Dense(features=self.out_size, name='d')(x)
         x = activation(x)
         return x
+
+
 
 

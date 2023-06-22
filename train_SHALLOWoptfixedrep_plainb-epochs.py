@@ -85,21 +85,21 @@ def train_once(key, entropy_coeff, clip_epsilon, base_params):
                 n_actions=n_actions, 
                 single_input_shape=example_state_feature.shape,
                 activation=activation,
-                freeze_representation=True)
+                freeze_shallow=True)
     elif architecture == "separate":
         raise NotImplementedError
 
     assert len(hidden_layer_sizes) == 2
-    temp_dense_layer = DenseLayer(hidden_layer_sizes=hidden_layer_sizes, activation=activation, layer=2)
+    temp_dense_layer = DenseLayer(activation=activation, out_size=hidden_layer_sizes[1])
     temp_softmax_model = SoftMaxLayer(n_actions=n_actions)
     temp_value_model = ValueLayer()
 
     key, subkey_model = jax.random.split(key)
     init_dense_params = temp_dense_layer.init(subkey_model, jnp.zeros(hidden_layer_sizes[0]))
     key, subkey_model_s = jax.random.split(key)
-    init_softmax_params = temp_softmax_model.init(subkey_model_s, jnp.zeros(hidden_layer_sizes[-1]))
+    init_softmax_params = temp_softmax_model.init(subkey_model_s, jnp.zeros(hidden_layer_sizes[1]))
     key, subkey_model_v = jax.random.split(key)
-    init_value_params = temp_value_model.init(subkey_model_v, jnp.zeros(hidden_layer_sizes[-1]))
+    init_value_params = temp_value_model.init(subkey_model_v, jnp.zeros(hidden_layer_sizes[1]))
     model_params = base_params
 
     model_params["params"][f"dense_2"] = init_dense_params["params"]["d"]
