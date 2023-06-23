@@ -176,6 +176,7 @@ def batch_epoch(batch: dict[str, jnp.array],
             return carry["optimizer_behaviour_state"], carry["model_params"]
 
 
+
         carry["optimizer_representation_state"], carry["model_params"] = jax.lax.cond(freeze_repval, freeze_repval_true, freeze_repval_false, carry)
         carry["optimizer_behaviour_state"], carry["model_params"] = jax.lax.cond(freeze_logits, freeze_logits_true, freeze_logits_false, carry)
 
