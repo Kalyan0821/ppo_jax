@@ -67,7 +67,7 @@ discount = config["discount"]
 eval_discount = config["eval_discount"]
 #############################################################
 
-# N_SEEDS = 6
+N_SEEDS = 4
 F = 4
 
 @jax.jit
@@ -151,9 +151,7 @@ def train_once(key, entropy_coeff, clip_epsilon):
 
         alpha = jnp.where(anneal, (1-idx/n_outer_iters), 1.0)
 
-        assert (n_epochs // F) >= 1
-
-        for _ in range(n_epochs // F):
+        for _ in range(n_epochs):
             key, permutation_key = jax.random.split(key)
 
             # infrequently train features
@@ -175,7 +173,7 @@ def train_once(key, entropy_coeff, clip_epsilon):
                                                         freeze_logitsval=True,
                                                         freeze_rep=False)
             
-        for _ in range(n_epochs):
+        for _ in range(n_epochs * F):
             key, permutation_key = jax.random.split(key)
 
             # frequently train policy
@@ -225,7 +223,7 @@ if __name__ == "__main__":
     ################# VMAP OVER: #################
     # hparams = OrderedDict({"keys": keys})
     hparams = OrderedDict({"keys": keys, 
-                           "ent": jnp.array( [0.0, 0.01, 0.05, 0.1, 0.4, 0.8] ),
+                           "ent": jnp.array( [0.0, 0.01, 0.05, 0.1] ),
                            "clip": jnp.array( [0.005, 0.02, 0.08, 0.2, 0.5, 0.8, 1e6] )})
     ##############################################
     SAVE_ARRAY = True
