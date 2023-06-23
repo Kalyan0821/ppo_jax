@@ -67,6 +67,7 @@ discount = config["discount"]
 eval_discount = config["eval_discount"]
 #############################################################
 
+# N_SEEDS = 6
 F = 4
 
 @jax.jit
@@ -150,7 +151,8 @@ def train_once(key, entropy_coeff, clip_epsilon):
 
         alpha = jnp.where(anneal, (1-idx/n_outer_iters), 1.0)
 
-        
+        assert (n_epochs // F) >= 1
+
         for _ in range(n_epochs // F):
             key, permutation_key = jax.random.split(key)
 
