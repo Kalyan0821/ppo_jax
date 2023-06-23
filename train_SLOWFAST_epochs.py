@@ -67,7 +67,7 @@ discount = config["discount"]
 eval_discount = config["eval_discount"]
 #############################################################
 
-F = 5
+F = 4
 
 @jax.jit
 # @partial(jax.vmap, in_axes=(0,))
@@ -151,7 +151,7 @@ def train_once(key, entropy_coeff, clip_epsilon):
         alpha = jnp.where(anneal, (1-idx/n_outer_iters), 1.0)
 
         
-        for _ in range(n_epochs):
+        for _ in range(n_epochs // F):
             key, permutation_key = jax.random.split(key)
 
             # infrequently train features
@@ -170,10 +170,10 @@ def train_once(key, entropy_coeff, clip_epsilon):
                                                         entropy_coeff,
                                                         normalize_advantages,
                                                         clip_epsilon*alpha,
-                                                        freeze_logits=True,
-                                                        freeze_repval=False)
+                                                        freeze_logitsval=True,
+                                                        freeze_rep=False)
             
-        for _ in range(n_epochs * F):
+        for _ in range(n_epochs):
             key, permutation_key = jax.random.split(key)
 
             # frequently train policy
@@ -192,8 +192,8 @@ def train_once(key, entropy_coeff, clip_epsilon):
                                                         entropy_coeff,
                                                         normalize_advantages,
                                                         clip_epsilon*alpha,
-                                                        freeze_logits=False,
-                                                        freeze_repval=True)
+                                                        freeze_logitsval=False,
+                                                        freeze_rep=True)
 
             
         carry["key"] = key

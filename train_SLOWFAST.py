@@ -152,14 +152,14 @@ def train_once(key, entropy_coeff, clip_epsilon):
 
         # # infrequently train features
         # if idx % 5 == 0:
-        #     freeze_logits = True
-        #     freeze_repval = False
-        # # frequently train policy
+        #     freeze_logitsval = True
+        #     freeze_rep = False
+        # # frequently train policy/value function
         # else:
-        #     freeze_logits = False
-        #     freeze_repval = True
-        freeze_logits = (idx % F == 0)
-        freeze_repval = jnp.logical_not(freeze_logits)
+        #     freeze_logitsval = False
+        #     freeze_rep = True
+        freeze_logitsval = (idx % F == 0)
+        freeze_rep = jnp.logical_not(freeze_logitsval)
 
         for _ in range(n_epochs):
             key, permutation_key = jax.random.split(key)
@@ -179,8 +179,8 @@ def train_once(key, entropy_coeff, clip_epsilon):
                                                         entropy_coeff,
                                                         normalize_advantages,
                                                         clip_epsilon*alpha,
-                                                        freeze_logits,
-                                                        freeze_repval)
+                                                        freeze_logitsval,
+                                                        freeze_rep)
             
         carry["key"] = key
 

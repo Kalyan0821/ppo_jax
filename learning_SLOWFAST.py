@@ -96,8 +96,8 @@ def batch_epoch(batch: dict[str, jnp.array],
                 entropy_coeff: float,
                 normalize_advantages: bool,
                 clip_epsilon: float,
-                freeze_logits: bool,
-                freeze_repval: bool):
+                freeze_logitsval: bool,
+                freeze_rep: bool):
     """ batch: each jnp.array: (horizon, n_agents, ...) """
 
     batch = permute(batch, permutation_key)
@@ -123,14 +123,14 @@ def batch_epoch(batch: dict[str, jnp.array],
                                  reshaped_batch)
         assert minibatch["states"].shape[0] == minibatch_size
 
-        def freeze_repval_true(carry):
+        def freeze_rep_true(carry):
             return carry["optimizer_representation_state"], carry["model_params"]
         
-        def freeze_logits_true(carry):
+        def freeze_logitsval_true(carry):
             return carry["optimizer_behaviour_state"], carry["model_params"]
         
-        def freeze_repval_false(carry):
-            ########### Learn representation & value function ###########
+        def freeze_rep_false(carry):
+            ########### Learn representation ###########
             (minibatch_loss, loss_info), gradient = val_and_grad_function(carry["model_params"],
                                                                           minibatch,
                                                                           model,
@@ -141,19 +141,22 @@ def batch_epoch(batch: dict[str, jnp.array],
                                                                           normalize_advantages,
                                                                           clip_epsilon)
             modified_gradient = unfreeze(gradient)
-            assert "logits" in modified_gradient["params"]
-            assert "value" in modified_gradient["params"]
             modified_gradient["params"]["logits"] = jax.tree_map(lambda x: jnp.zeros_like(x), gradient["params"]["logits"])
+            modified_gradient["params"]["value"] = jax.tree_map(lambda x: jnp.zeros_like(x), gradient["params"]["value"])
 
             param_updates, carry["optimizer_representation_state"] = optimizer_representation.update(
                                                                     freeze(modified_gradient),
                                                                     carry["optimizer_representation_state"],
                                                                     carry["model_params"])
-            carry["model_params"] = optax.apply_updates(carry["model_params"], param_updates)
+            modified_param_updates = unfreeze(param_updates)
+            modified_param_updates["params"]["logits"] = jax.tree_map(lambda x: jnp.zeros_like(x), param_updates["params"]["logits"])
+            modified_param_updates["params"]["value"] = jax.tree_map(lambda x: jnp.zeros_like(x), param_updates["params"]["value"])
+
+            carry["model_params"] = optax.apply_updates(carry["model_params"], freeze(modified_param_updates))
             return carry["optimizer_representation_state"], carry["model_params"]
         
-        def freeze_logits_false(carry):
-            ####################### Learn behaviour ######################
+        def freeze_logitsval_false(carry):
+            ####################### Learn behaviour & value function ######################
             (minibatch_loss, loss_info), gradient = val_and_grad_function(carry["model_params"],
                                                                           minibatch,
                                                                           model,
@@ -165,20 +168,24 @@ def batch_epoch(batch: dict[str, jnp.array],
                                                                           clip_epsilon)
             modified_gradient = unfreeze(gradient)
             for layer_name in gradient["params"]:
-                if layer_name != "logits":
+                if layer_name not in ["logits", "value"]:
                     modified_gradient["params"][layer_name] = jax.tree_map(lambda x: jnp.zeros_like(x), gradient["params"][layer_name])
 
             param_updates, carry["optimizer_behaviour_state"] = optimizer_behaviour.update(
                                                                         freeze(modified_gradient),
                                                                         carry["optimizer_behaviour_state"],
                                                                         carry["model_params"])
-            carry["model_params"] = optax.apply_updates(carry["model_params"], param_updates)
+            modified_param_updates = unfreeze(param_updates)
+            for layer_name in gradient["params"]:
+                if layer_name not in ["logits", "value"]:
+                    modified_param_updates["params"][layer_name] = jax.tree_map(lambda x: jnp.zeros_like(x), param_updates["params"][layer_name])
+
+            carry["model_params"] = optax.apply_updates(carry["model_params"], freeze(modified_param_updates))
             return carry["optimizer_behaviour_state"], carry["model_params"]
 
 
-
-        carry["optimizer_representation_state"], carry["model_params"] = jax.lax.cond(freeze_repval, freeze_repval_true, freeze_repval_false, carry)
-        carry["optimizer_behaviour_state"], carry["model_params"] = jax.lax.cond(freeze_logits, freeze_logits_true, freeze_logits_false, carry)
+        carry["optimizer_representation_state"], carry["model_params"] = jax.lax.cond(freeze_rep, freeze_rep_true, freeze_rep_false, carry)
+        carry["optimizer_behaviour_state"], carry["model_params"] = jax.lax.cond(freeze_logitsval, freeze_logitsval_true, freeze_logitsval_false, carry)
 
         return carry
 
